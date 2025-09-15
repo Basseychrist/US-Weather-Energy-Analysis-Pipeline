@@ -1,0 +1,13 @@
+# Dependencies(Using uv)
+[project]
+name = "weather-energy-pipeline"
+version = "1.0.0"
+dependencies = [
+    "requests",
+    "pandas",
+    "pyyaml",
+    "streamlit",
+    "plotly",
+    "scikit-learn",
+    "numpy"
+]
