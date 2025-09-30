@@ -1,9 +1,9 @@
 import requests
 import logging
-from datetime import datetime
+import time
+import math
 import json
 import os
-import time
 
 def _fetch_with_retries(url, params, headers, max_retries=3, backoff_factor=2):
     """Generic fetch function with retries and exponential backoff."""
@@ -22,20 +22,28 @@ def _fetch_with_retries(url, params, headers, max_retries=3, backoff_factor=2):
                 return None
 
 def fetch_weather_data(config, city, start_date, end_date):
-    """Fetches daily temperature data (TMAX, TMIN) from the NOAA API."""
+    """Fetches weather data from the NOAA API."""
     logging.info(f"Fetching weather data for {city['name']} from {start_date} to {end_date}")
-    headers = {'token': config['noaa']['token']}
+    api_key = config['noaa']['token']
+    base_url = config['noaa']['base_url']
+    station_id = city.get('noaa_station_id')
+
+    if not station_id:
+        logging.warning(f"No NOAA station ID for {city['name']}.")
+        return None
+
     params = {
-        'datasetid': 'GHCND',
-        'stationid': city['noaa_station_id'],
-        'startdate': start_date,
-        'enddate': end_date,
-        'datatypeid': 'TMAX,TMIN',
-        'limit': 1000,
-        'units': 'metric' # Fetch in Celsius, convert later
+        "datasetid": "GHCND",
+        "stationid": station_id,
+        "startdate": start_date,
+        "enddate": end_date,
+        "datatypeid": ["TMAX", "TMIN"],
+        "limit": 1000,
+        "units": "metric"
     }
-    
-    data = _fetch_with_retries(config['noaa']['base_url'], params, headers)
+    headers = {"token": api_key}
+
+    data = _fetch_with_retries(base_url, params, headers)
 
     if data:
         # Save raw data
@@ -47,27 +55,71 @@ def fetch_weather_data(config, city, start_date, end_date):
     return data
 
 def fetch_energy_data(config, city, start_date, end_date):
-    """Fetches daily energy consumption data from the EIA API."""
-    logging.info(f"Fetching energy data for {city['eia_region_code']} from {start_date} to {end_date}")
-    
-    url = f"{config['eia']['base_url']}"
-    params = {
-        "api_key": config['eia']['api_key'],
-        "frequency": "hourly",
-        "data[0]": "value",
-        "facets[respondent][]": city['eia_region_code'],
-        "start": start_date,
-        "end": end_date,
+    """
+    Fetches energy data from the EIA API, handling pagination to retrieve all data.
+    """
+    api_key = config['eia']['api_key']
+    base_url = config['eia']['base_url']
+    region_code = city.get('eia_region_code')
+
+    if not region_code:
+        logging.warning(f"No EIA region code configured for city: {city['name']}")
+        return None
+
+    all_data = []
+    limit = 5000  # EIA API row limit
+
+    # Initial request to get the total count
+    initial_params = {
+        'api_key': api_key,
+        'frequency': 'hourly',
+        'data[0]': 'value',
+        'facets[respondent][]': region_code,
+        'start': start_date,
+        'end': end_date,
+        'length': 0
     }
-    headers = {'Accept': 'application/json'}
 
-    data = _fetch_with_retries(url, params, headers)
+    try:
+        response = requests.get(base_url, params=initial_params, timeout=30)
+        response.raise_for_status()
+        json_response = response.json()
+        total_rows = int(json_response.get('response', {}).get('total', 0))
 
-    if data:
-        # Save raw data
-        raw_path = os.path.join(config['paths']['raw_data'], f"energy_{city['name']}_{start_date}_{end_date}.json")
-        os.makedirs(os.path.dirname(raw_path), exist_ok=True)
-        with open(raw_path, 'w') as f:
-            json.dump(data, f)
-        logging.info(f"Successfully fetched energy data for {city['eia_region_code']}.")
-    return data
+        if total_rows == 0:
+            logging.warning(f"No energy data found for {region_code} in the specified date range.")
+            return None
+
+        # Loop through all pages
+        for i in range(math.ceil(total_rows / limit)):
+            offset = i * limit
+            params = {
+                'api_key': api_key,
+                'frequency': 'hourly',
+                'data[0]': 'value',
+                'facets[respondent][]': region_code,
+                'start': start_date,
+                'end': end_date,
+                'sort[0][column]': 'period',
+                'sort[0][direction]': 'asc',
+                'offset': offset,
+                'length': limit
+            }
+            
+            page_response = requests.get(base_url, params=params, timeout=30)
+            page_response.raise_for_status()
+            page_json = page_response.json()
+
+            if 'response' in page_json and 'data' in page_json['response']:
+                data = page_json['response']['data']
+                if data:
+                    all_data.extend(data)
+            else:
+                logging.warning(f"EIA API response for page {i+1} did not contain 'data'.")
+                break
+        
+        return {'response': {'data': all_data}}
+
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error fetching EIA data for {region_code}: {e}")
+        return None
