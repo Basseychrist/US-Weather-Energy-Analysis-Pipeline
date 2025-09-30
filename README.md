@@ -1,117 +1,130 @@
 # Project 1: US Weather + Energy Analysis Pipeline
 
-This project demonstrates a production-ready data pipeline and analysis dashboard that explores the relationship between weather patterns and energy consumption in major US cities.
+This project automates the process of fetching, cleaning, and analyzing weather and energy data for major US cities. It helps energy companies understand how weather impacts energy demand.
 
-## Business Context
+---
 
-Energy companies can significantly improve demand forecasting by incorporating weather data. This pipeline automates the process of fetching, cleaning, and analyzing weather and energy data to uncover critical patterns, helping to optimize power generation and reduce costs.
+## Quick Start Guide (for Junior Developers)
 
-## Features
+### 1. **Set up your Python environment**
 
-- **Automated Data Pipeline**: Daily and historical data fetching from NOAA (weather) and EIA (energy) APIs.
-- **Robust Error Handling**: The pipeline logs errors and continues processing available data.
-- **Data Quality Checks**: Automated checks for missing values, outliers, and data freshness.
-- **Interactive Dashboard**: A Streamlit application for visualizing the data with four key analyses.
-- **Modular & Configurable**: Code is organized into modules with a central `config.yaml` for easy management.
+> **Why?**  
+> Isolates project dependencies so you don't break your system Python.
 
-## Repository Structure
+```bash
+# Create a virtual environment using uv (recommended)
+uv venv
+source .venv/Scripts/activate  # On Windows
+# On Mac/Linux: source .venv/bin/activate
+```
 
-project1-energy-analysis/
-├── README.md # This file
-├── pyproject.toml # Project dependencies
-├── config/
-│ └── config.yaml # API keys, cities list, paths
-├── src/ # Source code for the data pipeline
-│ ├── data_fetcher.py # API interaction
-│ ├── data_processor.py # Data cleaning and quality checks
-│ ├── analysis.py # Functions for statistical analysis
-│ └── pipeline.py # Main pipeline orchestration script
-├── dashboards/
-│ └── app.py # Streamlit dashboard application
-└── data/
-├── raw/ # Raw JSON data from APIs
-└── processed/ # Clean, analysis-ready CSV data
+### 2. **Install dependencies**
 
-## Step1: Set up a virtual environment (recommended): Using uv:
+> **Why?**  
+> Installs all required Python packages for the pipeline and dashboard.
 
-- **Bash**
-  uv venv
-  source .venv/Scripts/activate
+```bash
+uv pip install -r pyproject.toml
+```
 
-## Step2: To install dependencies:
+### 3. **Configure API Keys**
 
-- **Bash**
-  uv pip install -r pyproject.toml
+> **Why?**  
+> The pipeline needs access to NOAA (weather) and EIA (energy) APIs.
 
-## Step3: Configure API Keys:
+- Open `config/config.yaml`
+- Add your NOAA and EIA API keys under the appropriate fields.
 
-Open config/config.yaml and add your personal API keys for NOAA and EIA.
+### 4. **Run the Data Pipeline**
 
-## How to Run
-
-### Prerequisites
-
-- Python 3.8+
-- An environment with the packages from `pyproject.toml` installed.
-
-### Running the Pipeline
-
-To run the data pipeline, use the `main.py` script from the root directory:
+> **Why?**  
+> Fetches and processes historical or daily weather/energy data for all cities.
 
 ```bash
 # For a historical load (last 180 days)
 python main.py historical
-
-# For a daily update (yesterday's data)
-python main.py forecast
 ```
 
-### Viewing the Dashboard
+- **Business Rule:**
+  - Historical mode fetches and processes the last 180 days for all cities.
+  - Forecast mode fetches only yesterday's data.
 
-To launch the Streamlit dashboard, run the following command from the root directory:
+### 5. **Launch the Dashboard**
+
+> **Why?**  
+> Visualizes the processed data and provides interactive analysis.
 
 ```bash
 streamlit run dashboards/app.py
 ```
 
-## Analysis Insights
+- Open the link shown in your terminal to view the dashboard in your browser.
 
-The visualizations provided in the dashboard reveal several key patterns in the relationship between weather and energy consumption.
+---
 
-### Heatmap Analysis (Usage Patterns)
+## Business Logic & Complex Rules
 
-The heatmap breaks down average energy usage by temperature range and day of the week. For a city like New York, the following insights can be drawn:
+- **Weather Data Conversion:**  
+  NOAA API returns temperatures in degrees Celsius.  
+  The pipeline converts these to Fahrenheit using:  
+  `F = (C * 9/5) + 32`
 
-- **Temperature Impact**: As temperatures rise, energy consumption consistently increases. This is shown by the colors shifting from blue (low usage) at the bottom of the chart to red (high usage) at the top. This strong positive correlation is typical for locations with high air conditioning usage during warmer weather.
+- **Data Quality:**  
+  The pipeline checks for missing values, outliers, and data freshness.  
+  Outliers are flagged if temperatures are outside expected ranges.
 
-- **Weekly Cycle**: There is a clear difference in energy consumption between weekdays and weekends. Usage is significantly lower on Saturdays and Sundays (darker blue cells) compared to weekdays (Monday-Friday). This pattern reflects reduced commercial and industrial activity over the weekend.
+- **Date Range Handling:**  
+  The pipeline ensures every day in the requested range is present in the output, even if some days are missing from the raw data.
 
-- **Peak Demand**: The highest energy demand occurs when high temperatures coincide with a weekday. For example, the top-left cells (hot weekdays) are the reddest, indicating peak consumption.
+- **Correlation Analysis Warning:**  
+  If the selected date range in the dashboard has less than 20°F temperature variation, a warning is shown.
 
-- **Missing Data (`NaN`)**: The white cells marked `NaN` indicate that for the selected time period, there were no recorded days with that specific combination of temperature and day of the week.
+  > **Tip:** Select a wider date range for meaningful analysis.
 
-**In summary, the heatmap clearly shows that energy demand in New York is driven by both weather (temperature) and economic activity (weekday vs. weekend).**
+- **Heatmap Binning:**  
+  The dashboard bins average daily temperatures into ranges (e.g., `<50°F`, `50-60°F`, etc.) for usage pattern analysis.
 
-### Correlation Analysis (Temperature vs. Energy Usage)
+---
 
-The correlation analysis provides insights into how temperature changes are related to energy usage variations. Key points include:
+## Troubleshooting
 
-- **Positive Correlation**: There is a noticeable positive correlation between temperature and energy usage. As temperatures increase, energy usage tends to increase as well, likely due to higher air conditioning demand.
+- **API errors:**  
+  Check your API keys and internet connection.
+- **Missing data:**  
+  Some days may be missing if the API did not return data.
+- **Temperature values look wrong:**  
+  Make sure the conversion from Celsius to Fahrenheit is applied (see above).
+- **Dashboard shows warning:**  
+  Widen your date range in the dashboard filters.
 
-- **R-squared Value**: The R-squared value of the linear regression line indicates a strong fit, meaning temperature is a good predictor of energy usage in this dataset.
+---
 
-- **Outliers**: Some outliers exist where energy usage is higher or lower than expected for a given temperature. These may warrant further investigation to understand underlying causes.
+## How to Run Tests
 
-- **Data Distribution**: The scatter plot shows the distribution of energy usage values at different temperatures, with a clear trend of increasing usage with temperature.
+> **Why?**  
+> Automated tests help ensure your pipeline and data processing are working correctly.
 
-**Conclusion**: The correlation analysis confirms that temperature significantly impacts energy usage, validating the need for weather data in energy demand forecasting.
+1. Make sure you have installed all dependencies (including `pytest`).
+2. From your project root directory, run:
 
-### Intelligent Warning System
+```bash
+pytest tests/
+```
 
-To prevent misinterpretation, the dashboard now includes an intelligent warning system. If you select a date range where the temperature variation is too small (e.g., less than 20°F), a warning message will appear above the correlation plot, as you have seen.
+- This will automatically discover and run all test files in the `tests` folder.
+- Do **not** run test files directly with `python tests/test_pipeline.py`.
 
-**What to do when you see the warning:**
+## Next Steps
 
+- Add automated tests for pipeline and dashboard.
+- Integrate a formal data quality framework (e.g., Great Expectations).
+- Expand dashboard with time-series forecasting.
+
+---
+
+## Questions?
+
+If you get stuck, ask a senior developer or check the comments in the code for explanations of business rules and logic.
 The warning is your guide to a better analysis. To resolve it and see a meaningful correlation, you should:
 
 1.  Go to the **"Filters"** section in the sidebar of the dashboard.

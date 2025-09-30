@@ -44,14 +44,19 @@ def prepare_heatmap_data(df):
         return pd.DataFrame()
         
     # Define custom temperature bins and labels as requested
-    bins = [-np.inf, 50, 60, 70, 80, 90, np.inf]
-    labels = ['<50°F', '50-60°F', '60-70°F', '70-80°F', '80-90°F', '>90°F']
+    bins = [50, 60, 70, 80, 90, float('inf')]
+    labels = ['50-60°F', '60-70°F', '70-80°F', '80-90°F', '>90°F']
     
     df = df.copy()
+    # Fill missing temp_avg_f with the mean of available values to avoid dropping all data
+    if df['temp_avg_f'].isnull().any():
+        df['temp_avg_f'] = df['temp_avg_f'].fillna(df['temp_avg_f'].mean())
     df['temp_range'] = pd.cut(df['temp_avg_f'], bins=bins, labels=labels, right=False)
     df['day_of_week'] = df['date'].dt.day_name()
     
-    heatmap_data = df.groupby(['temp_range', 'day_of_week'], observed=False)['energy_demand_gwh'].mean().unstack()
+    # Fill missing energy_demand_gwh with 0 for heatmap visualization
+    df['energy_demand_gwh'] = df['energy_demand_gwh'].fillna(0)
+    heatmap_data = df.groupby(['temp_range', 'day_of_week'], observed=False)['energy_demand_gwh'].mean().unstack(fill_value=0)
     
     # Order columns by day of the week
     day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]

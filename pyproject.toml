@@ -9,5 +9,9 @@ dependencies = [
     "streamlit",
     "plotly",
     "scikit-learn",
-    "numpy"
+    "numpy",
+    "matplotlib",
+    "seaborn",
+    "pytest",
+    "statsmodels"
 ]

@@ -38,6 +38,11 @@ def run_pipeline(mode):
             logging.info(f"Successfully fetched weather data for {city['name']}.")
             # Pass raw weather data and city metadata to process_weather_data
             weather_df = process_weather_data(weather_data, city['name'], start_date_str, end_date_str)
+            # Ensure the processed DataFrame covers the full date range
+            expected_days = pd.date_range(start=start_date_str, end=end_date_str, freq='D')
+            missing_days = set(expected_days) - set(weather_df['date'])
+            if missing_days:
+                logging.warning(f"{city['name']} missing {len(missing_days)} days in weather data.")
             all_weather_dfs.append(weather_df)
         else:
             logging.warning(f"No weather data found for {city['name']}.")
@@ -50,6 +55,11 @@ def run_pipeline(mode):
             logging.info(f"Successfully fetched energy data for {city['name']}.")
             # Pass raw energy data and city metadata to process_energy_data
             energy_df = process_energy_data(energy_data, city['name'], start_date_str, end_date_str)
+            # Ensure the processed DataFrame covers the full date range
+            expected_days = pd.date_range(start=start_date_str, end=end_date_str, freq='D')
+            missing_days = set(expected_days) - set(energy_df['date'])
+            if missing_days:
+                logging.warning(f"{city['name']} missing {len(missing_days)} days in energy data.")
             all_energy_dfs.append(energy_df)
         else:
             logging.warning(f"No energy data found for {city['name']}.")

@@ -31,9 +31,12 @@ def process_weather_data(raw_data, city_name, start_date_str, end_date_str):
     for item in raw_data['results']:
         date = item['date'].split('T')[0]
         datatype = item['datatype']
-        # Value is in tenths of a degree C, convert to C then F
-        value_c = item['value'] / 10
+        # NOAA value is already in degrees Celsius, do NOT divide by 10
+        value_c = item['value']
         value_f = celsius_to_fahrenheit(value_c)
+        # DEBUG: Print conversion for a few dates
+        if date.startswith('2025-07-29') and city_name == 'New York':
+            print(f"DEBUG: {date} {datatype} raw={item['value']} c={value_c} f={value_f}")
         records.append({'date': date, 'datatype': datatype, 'value': value_f})
 
     df = pd.DataFrame(records)
@@ -51,6 +54,11 @@ def process_weather_data(raw_data, city_name, start_date_str, end_date_str):
 
     # Ensure complete date range using passed dates
     df = ensure_complete_date_range(df, start_date_str, end_date_str, city_name)
+
+    # Fill missing temp_max_f and temp_min_f with their respective means
+    df['temp_max_f'] = df['temp_max_f'].fillna(df['temp_max_f'].mean())
+    df['temp_min_f'] = df['temp_min_f'].fillna(df['temp_min_f'].mean())
+    df['temp_avg_f'] = df[['temp_max_f', 'temp_min_f']].mean(axis=1)
     return df
 
 def process_energy_data(raw_data, city_name, start_date_str, end_date_str):
