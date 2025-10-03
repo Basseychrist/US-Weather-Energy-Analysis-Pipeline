@@ -18,3 +18,7 @@ dependencies = [
     "statsmodels",
     "python-dateutil"
 ]
+
+# --- Tell Poetry not to attempt to install the current project package ---
+[tool.poetry]
+package-mode = false
