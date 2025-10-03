@@ -13,5 +13,7 @@ dependencies = [
     "matplotlib",
     "seaborn",
     "pytest",
-    "statsmodels"
+    "statsmodels",
+    "pydeck",
+    "python-dateutil"
 ]

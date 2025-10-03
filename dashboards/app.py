@@ -9,6 +9,12 @@ import yaml
 import sys
 import numpy as np
 
+# To deploy on Streamlit Cloud:
+# - Ensure all dependencies are listed in pyproject.toml
+# - Make sure 'data/processed/weather_energy_data.csv' exists and is up-to-date
+# - Make sure 'config/config.yaml' exists and contains city metadata and API keys
+# - All imports and file paths should be relative to the project root
+
 # Add src to path to import modules
 # Make sure the app is run from the root of the project
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
