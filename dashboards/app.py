@@ -189,12 +189,17 @@ st.sidebar.header("Pipeline / Data Refresh")
 st.sidebar.write("Auto-run will attempt to fetch & process latest data if missing or stale.")
 
 # Read environment variable to allow enabling in deployed environments (Streamlit Cloud secrets)
-env_auto_hist = os.getenv("AUTO_RUN_HISTORICAL", "false").lower() in ("1", "true", "yes")
+raw_env = os.getenv("AUTO_RUN_HISTORICAL")
+if raw_env is None:
+    # default ON when env var not provided
+    env_auto_hist = True
+else:
+    env_auto_hist = str(raw_env).lower() in ("1", "true", "yes")
 
 # Checkbox to auto-run realtime (existing) — keep as-is
 auto_run_enabled = st.sidebar.checkbox("Auto-run pipeline on startup (realtime)", value=True, key="auto_run_enabled_v3")
 
-# NEW: checkbox to auto-run full historical load on startup (default from env)
+# NEW: checkbox to auto-run full historical load on startup (default from env or True)
 auto_run_historical = st.sidebar.checkbox(
     "Auto-run historical on startup (full reprocess)", 
     value=env_auto_hist, 

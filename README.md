@@ -210,3 +210,40 @@ Notes and caveats:
 - Historical runs can be long-running (minutes to hours). Keep the session open while it runs.
 - On Streamlit Cloud ensure NOAA/EIA API keys are available via Secrets so the pipeline can access them.
 - If you prefer not to run heavy jobs inside the dashboard, run locally or via CI: `python main.py historical`.
+
+## Enabling auto historical runs (AUTO_RUN_HISTORICAL)
+
+Do NOT put AUTO_RUN_HISTORICAL in .streamlit/config.toml or config/config.yaml. Instead set it as an environment variable or Streamlit secret.
+
+- Locally (bash):
+
+  ```bash
+  export AUTO_RUN_HISTORICAL=true
+  streamlit run dashboards/app.py
+  ```
+
+- Locally (PowerShell):
+
+  ```powershell
+  $Env:AUTO_RUN_HISTORICAL = "true"
+  streamlit run dashboards/app.py
+  ```
+
+- Windows (persistent):
+
+  ```cmd
+  setx AUTO_RUN_HISTORICAL "true"
+  ```
+
+- Streamlit Cloud / Streamlit Community Cloud:
+  1. Open your app on share.streamlit.io → Manage app → Settings → Secrets / Environment variables.
+  2. Add a secret with key: `AUTO_RUN_HISTORICAL` and value: `true`
+  3. Redeploy the app.
+
+The app checks the variable with:
+
+```python
+os.getenv("AUTO_RUN_HISTORICAL", "false").lower() in ("1", "true", "yes")
+```
+
+Valid values: true, 1, yes (case-insensitive). Remove any AUTO_RUN_HISTORICAL lines from config files if present.
