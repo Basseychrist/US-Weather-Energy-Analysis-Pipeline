@@ -114,6 +114,40 @@ pytest tests/
 - This will automatically discover and run all test files in the `tests` folder.
 - Do **not** run test files directly with `python tests/test_pipeline.py`.
 
+## Data Quality Report (in-app)
+
+The Streamlit app includes an automated "Data Quality Report" (toggle in the sidebar). It runs these checks:
+
+- Missing Values
+
+  - What: Counts nulls per column (temp_max_f, temp_min_f, energy_demand_gwh).
+  - Why: Missing data can bias analyses, break plots, and hide trends. The report shows where and how many missing values exist and lists example rows.
+
+- Temperature Outliers
+
+  - What: Flags daily records where temp_max_f > 130°F or temp_min_f < -50°F.
+  - Why: These readings are usually erroneous (sensor/ingestion issues). Outliers can distort averages and correlations.
+
+- Negative Energy Consumption
+
+  - What: Flags rows where energy_demand_gwh < 0.
+  - Why: Energy demand should be non-negative; negative values indicate unit or ingestion errors.
+
+- Data Freshness
+  - What: Shows the most recent date in the dataset and how many days have passed since then.
+  - Why: Stale data can cause incorrect operational insights; a freshness flag helps detect pipeline failures.
+
+How to use:
+
+1. Open the dashboard: streamlit run dashboards/app.py
+2. In the sidebar, select your date range and cities.
+3. Check "Show Data Quality Report" to view missing-value tables, outlier counts, sample problematic rows, and a time-series chart of quality metrics.
+
+Business rules:
+
+- Temperature thresholds are configurable in code; adjust if you need different outlier bounds.
+- The report aggregates metrics daily to help detect systemic issues over time.
+
 ## Next Steps
 
 - Add automated tests for pipeline and dashboard.

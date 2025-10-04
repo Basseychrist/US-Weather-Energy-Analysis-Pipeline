@@ -8,6 +8,8 @@ import os
 import yaml
 import sys
 import numpy as np
+from src.analysis import get_correlation_stats, prepare_heatmap_data
+from src.data_processor import run_quality_checks  # added import
 
 # To deploy on Streamlit Cloud:
 # - Ensure all dependencies are listed in pyproject.toml
@@ -36,7 +38,7 @@ def load_data():
     processed_path = 'data/processed/weather_energy_data.csv'
     if not os.path.exists(processed_path):
         st.error(f"Processed data not found at {processed_path}. Please run the pipeline first.")
-        return None, None
+        return None, None, None
     
     df = pd.read_csv(processed_path, parse_dates=['date'])
     
@@ -46,9 +48,9 @@ def load_data():
     
     # Merge city metadata (lat/lon)
     df = pd.merge(df, city_df[['name', 'lat', 'lon']], left_on='city', right_on='name', how='left')
-    return df, city_df
+    return df, city_df, config  # return config as well
 
-df, city_df = load_data()
+df, city_df, config = load_data()
 
 if df is not None:
     # --- Sidebar Filters ---
@@ -79,6 +81,9 @@ if df is not None:
         default=all_cities
     )
 
+    # Add Data Quality toggle in sidebar
+    show_quality = st.sidebar.checkbox("Show Data Quality Report", value=False)
+
     # --- Filter Data Based on Selections ---
     filtered_df = df[
         (df['date'].dt.date >= start_date) &
@@ -89,6 +94,84 @@ if df is not None:
     # --- Main Dashboard ---
     st.title("⚡ US Weather & Energy Consumption Dashboard")
     st.markdown(f"Data last updated: **{max_date.strftime('%Y-%m-%d')}**")
+
+    # --- Data Quality Helpers ---
+    def compute_quality_timeseries(df_in):
+        """Return per-day quality metrics: missing count, temp outliers, negative energy."""
+        if df_in.empty:
+            return pd.DataFrame(columns=['date','missing_total','temp_outliers','negative_energy'])
+        d = df_in.copy()
+        # Identify outliers and missing indicators
+        d['temp_outlier'] = ((d['temp_max_f'] > 130) | (d['temp_min_f'] < -50)).fillna(False).astype(int)
+        d['negative_energy'] = (d['energy_demand_gwh'] < 0).fillna(False).astype(int)
+        d['missing_count'] = d[['temp_max_f','temp_min_f','energy_demand_gwh']].isnull().sum(axis=1)
+        ts = d.groupby(d['date'].dt.date).agg(
+            missing_total=('missing_count','sum'),
+            temp_outliers=('temp_outlier','sum'),
+            negative_energy=('negative_energy','sum')
+        ).reset_index().rename(columns={'date':'date'})
+        ts['date'] = pd.to_datetime(ts['date'])
+        return ts
+
+    # --- Show Data Quality Report if requested ---
+    if show_quality:
+        st.header("Data Quality Report")
+        # Run single-run quality checks (summary)
+        report = run_quality_checks(filtered_df, config)
+
+        # Missing values by column
+        st.subheader("Missing Values")
+        missing_dict = report.get('missing_values', {})
+        # Show table of missing counts (column, count)
+        missing_df = pd.DataFrame(list(missing_dict.items()), columns=['column','missing_count'])
+        st.table(missing_df)
+
+        # Summary metrics
+        temp_outliers_count = report.get('temp_outliers_count', 0)
+        negative_energy_count = report.get('negative_energy_count', 0)
+        latest_data_date = report.get('latest_data_date', 'N/A')
+        days_since_latest_data = report.get('days_since_latest_data', 'N/A')
+
+        col_a, col_b, col_c = st.columns(3)
+        col_a.metric("Total Temp Outliers", f"{temp_outliers_count}")
+        col_b.metric("Negative Energy Rows", f"{negative_energy_count}")
+        col_c.metric("Latest Data Date", f"{latest_data_date}", delta=f"{days_since_latest_data} days since latest")
+
+        # Detailed rows with examples (show a few rows that are problematic)
+        st.subheader("Example Problematic Rows")
+        # show rows with any missing or outlier flags
+        problems = filtered_df[
+            filtered_df[['temp_max_f','temp_min_f','energy_demand_gwh']].isnull().any(axis=1) |
+            (filtered_df['temp_max_f'] > 130) |
+            (filtered_df['temp_min_f'] < -50) |
+            (filtered_df['energy_demand_gwh'] < 0)
+        ]
+        if not problems.empty:
+            st.dataframe(problems.head(50))
+        else:
+            st.info("No problematic rows found in the current filter.")
+
+        # Show time series of quality metrics over the selected date range
+        st.subheader("Quality Metrics Over Time")
+        ts = compute_quality_timeseries(filtered_df)
+        if not ts.empty:
+            # Use line chart for trends
+            st.line_chart(ts.set_index('date')[['missing_total','temp_outliers','negative_energy']])
+        else:
+            st.info("Not enough data to compute time series metrics.")
+
+        # Documentation / explanations for each check
+        st.subheader("What each check does and why it matters")
+        st.markdown("""
+        - Missing Values: counts nulls in temp_max_f, temp_min_f, energy_demand_gwh. Missing data can bias analysis and break visualizations.
+        - Temperature Outliers: flags temperatures > 130°F or < -50°F. These are physically implausible for most US locations and usually indicate sensor or ingestion issues.
+        - Negative Energy Consumption: flags negative values which are invalid for demand (indicates data or unit errors).
+        - Data Freshness: reports most recent date and days since latest. Stale data may indicate upstream failures or delays.
+        
+        Business rules:
+        - Temperature thresholds (130°F / -50°F) are conservative bounds; adjust in config if needed for your domain.
+        - We show per-day aggregated counts so you can detect systemic/data-source issues over time.
+        """)
 
     # --- Visualization 1: Geographic Overview ---
     st.header("Geographic Overview")
