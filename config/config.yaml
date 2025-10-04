@@ -46,3 +46,5 @@ data_quality:
   temp_outlier_fahrenheit:
     max: 130
     min: -50
+
+

@@ -167,8 +167,46 @@ The warning is your guide to a better analysis. To resolve it and see a meaningf
 
 This feature ensures that any conclusions drawn from the chart are based on a statistically sound sample of data.
 
-## Next Steps
+## Auto-refresh behavior (app runs pipeline)
 
-- Integrate a formal data quality framework like Great Expectations.
-- Add unit and integration tests for the pipeline.
-- Expand the dashboard with more advanced analytics (e.g., time-series forecasting).
+- On startup, the Streamlit app checks data/processed/weather_energy_data.csv.
+  - If the file is missing or older than 24 hours the app will automatically run the pipeline:
+    python main.py realtime
+  - Auto-run can be disabled in the app sidebar ("Auto-run pipeline on startup").
+- You can force a pipeline run from the dashboard sidebar using "Run pipeline now".
+- If automatic runs fail, the UI will display a warning with basic error information.
+- Note: main.py must exist at the project root and implement a 'realtime' mode that creates/updates data/processed/weather_energy_data.csv.
+- If your pipeline requires secrets (API keys), configure them via Streamlit Cloud Secrets before deploying.
+
+## Running Historical Loads from the Dashboard
+
+You can trigger a historical full load (equivalent to `python main.py historical`) directly from the Streamlit dashboard:
+
+- Open the dashboard: `streamlit run dashboards/app.py`
+- In the sidebar find "Pipeline / Data Refresh"
+- Click "Run historical load (full)"
+
+Notes and caveats:
+
+- Historical loads can be long-running (minutes to hours). The dashboard will run the pipeline synchronously in the current session — do not close the browser or stop the Streamlit process while it runs.
+- On Streamlit Cloud, ensure secrets (NOAA/EIA API keys) are configured in the app's Secrets so main.py can access them.
+- If your pipeline is heavy or requires more time than allowed by the environment, prefer running `python main.py historical` outside the dashboard (CI job or server) and let the dashboard read the produced CSV.
+- The dashboard exposes both a realtime/manual small-run button and the historical full-load button; use the latter only when you need to reprocess the full historical window.
+
+## Auto-run historical on startup
+
+You can configure the dashboard to automatically run the full historical pipeline when the app opens.
+
+- Enable via the dashboard:
+
+  - Open the app and check "Auto-run historical on startup (full reprocess)" in the sidebar.
+
+- Enable via environment variable (useful for Streamlit Cloud):
+  - Set AUTO_RUN_HISTORICAL=true in your environment or Streamlit Cloud Secrets.
+  - On Streamlit Cloud: add a secret named AUTO_RUN_HISTORICAL with value true.
+
+Notes and caveats:
+
+- Historical runs can be long-running (minutes to hours). Keep the session open while it runs.
+- On Streamlit Cloud ensure NOAA/EIA API keys are available via Secrets so the pipeline can access them.
+- If you prefer not to run heavy jobs inside the dashboard, run locally or via CI: `python main.py historical`.
