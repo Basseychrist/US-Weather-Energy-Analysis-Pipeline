@@ -372,7 +372,7 @@ selected_cities = st.sidebar.multiselect(
 )
 
 # Add Data Quality toggle in sidebar
-show_quality = st.sidebar.checkbox("Show Data Quality Report", value=False)
+show_quality = st.sidebar.checkbox("Show Data Quality Report", value=True)
 
 # --- Filter Data Based on Selections ---
 filtered_df = df[
