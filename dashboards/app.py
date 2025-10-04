@@ -343,6 +343,33 @@ def apply_force_light_theme():
 # Call the theming helper immediately so the UI renders light
 apply_force_light_theme()
 
+# --- Problem Statement (visible at app start) ---
+problem_md = """
+## Problem Statement
+
+**Context:** Energy providers need to understand how weather (temperature) drives daily electricity demand across major US cities.
+
+**Objective:** Build a reproducible pipeline and dashboard that:
+- Fetches weather (NOAA) and energy (EIA) data,
+- Cleans and aligns daily weather and energy time series,
+- Surfaces correlations and usage patterns, and
+- Alerts on data quality issues.
+
+**Data sources:** NOAA (daily TMAX/TMIN) and EIA (regional electricity demand).
+
+**Expected outputs:** 
+- Processed CSV: `data/processed/weather_energy_data.csv`
+- Interactive dashboard with time-series, correlation analysis, geographic overview, and a data quality report.
+
+**How to run:**  
+- Historical full load: `python main.py historical` (or use sidebar "Run historical load (full)")  
+- Daily update: `python main.py realtime` (auto/manual via sidebar)
+
+**Acceptance criteria:** Processed CSV exists, key visualizations render, and data quality report shows zero critical failures.
+"""
+with st.expander("Problem Statement / Project Overview", expanded=True):
+    st.markdown(problem_md)
+
 # --- Sidebar Filters ---
 st.sidebar.header("Filters")
     
