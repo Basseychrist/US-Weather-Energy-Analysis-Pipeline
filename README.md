@@ -57,7 +57,7 @@ python main.py historical
 ```bash
 streamlit run dashboards/app.py
 ```
-
+<!--  -->
 - Open the link shown in your terminal to view the dashboard in your browser.
 
 ---
