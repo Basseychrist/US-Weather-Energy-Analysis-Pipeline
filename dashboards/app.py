@@ -5,6 +5,7 @@ import sys
 import streamlit as st
 import pandas as pd
 import yaml
+from html import escape  # added import
 
 # --- Add missing visualization imports ---
 import pydeck as pdk
@@ -436,12 +437,39 @@ if show_quality:
     # Run single-run quality checks (summary)
     report = run_quality_checks(filtered_df, config)
 
-    # Missing values by column
+    # --- Styled Missing Values Table (robust HTML, even when empty) ---
     st.subheader("Missing Values")
     missing_dict = report.get('missing_values', {})
-    # Show table of missing counts (column, count)
     missing_df = pd.DataFrame(list(missing_dict.items()), columns=['column','missing_count'])
-    st.table(missing_df)
+
+    # Prepare rows (use placeholder when no missing values)
+    if missing_df.empty:
+        rows = [("(no missing values)", "0")]
+    else:
+        rows = missing_df.values.tolist()
+
+    # Build table HTML safely escaping content
+    table_rows_html = ""
+    for col, cnt in rows:
+        table_rows_html += f"<tr><td>{escape(str(col))}</td><td style='text-align:right'>{escape(str(cnt))}</td></tr>"
+
+    missing_table_html = f"""
+    <style>
+    .missing-table {{ border-collapse: collapse; width: 100%; font-family: sans-serif; }}
+    .missing-table th, .missing-table td {{ border: 1px solid #ddd; padding: 8px; color: #000000; }}
+    .missing-table th {{ background-color: #f0f0f0; font-weight: 700; color: #000000; text-align:left; }}
+    .missing-table tr:hover {{ background-color: #fafafa; }}
+    </style>
+    <table class="missing-table" border="0" cellpadding="0" cellspacing="0">
+      <thead>
+        <tr><th>Column</th><th style="text-align:right">Missing Count</th></tr>
+      </thead>
+      <tbody>
+        {table_rows_html}
+      </tbody>
+    </table>
+    """
+    st.markdown(missing_table_html, unsafe_allow_html=True)
 
     # Summary metrics
     temp_outliers_count = report.get('temp_outliers_count', 0)
@@ -647,48 +675,55 @@ else:
 
 # --- Visualization 3: Correlation Analysis ---
 st.header("Correlation Analysis")
-    
+
 if not filtered_df.empty:
-    # --- Clean data for correlation analysis ---
-    corr_df = filtered_df.dropna(subset=['temp_avg_f', 'energy_demand_gwh'])
+	# Add a selector for city-specific correlation (includes "All Cities")
+	corr_city_choice = st.selectbox("Select city for correlation", options=["All Cities"] + list(all_cities), index=0, key="corr_city_select")
 
-    if not corr_df.empty and len(corr_df) > 2:
-        # --- Add a warning for narrow temperature ranges ---
-        temp_range = corr_df['temp_avg_f'].max() - corr_df['temp_avg_f'].min()
-        if temp_range < 20:  # Define a threshold (e.g., 20°F) for a "narrow" range
-            st.warning(
-                f"**Warning:** The temperature range in the selected data ({temp_range:.1f}°F) is very narrow. "
-                "The correlation results may be misleading. Try selecting a wider date range for a more meaningful analysis."
-            )
+	# --- Clean data for correlation analysis ---
+	corr_df = filtered_df.dropna(subset=['temp_avg_f', 'energy_demand_gwh'])
 
-        fig_corr = px.scatter(
-            corr_df,
-            x='temp_avg_f',
-            y='energy_demand_gwh',
-            color='city',
-            trendline='ols',
-            trendline_scope='overall',
-            hover_data=['date', 'temp_avg_f', 'energy_demand_gwh']
-        )
-        
-        # Correctly unpack all 4 returned values
-        correlation, r_squared, (slope, intercept), plot_df = get_correlation_stats(corr_df)
+	# Apply city filter if a specific city is selected
+	if corr_city_choice != "All Cities":
+		corr_df = corr_df[corr_df['city'] == corr_city_choice]
 
-        # Format the regression equation string
-        intercept_sign = '+' if intercept >= 0 else '-'
-        equation = f"y = {slope:.2f}x {intercept_sign} {abs(intercept):.2f}"
+	if not corr_df.empty and len(corr_df) > 2:
+		# --- Add a warning for narrow temperature ranges ---
+		temp_range = corr_df['temp_avg_f'].max() - corr_df['temp_avg_f'].min()
+		if temp_range < 20:  # Define a threshold (e.g., 20°F) for a "narrow" range
+			st.warning(
+				f"**Warning:** The temperature range in the selected data ({temp_range:.1f}°F) is very narrow. "
+				"Try selecting a wider date range for a more meaningful analysis."
+			)
 
-        fig_corr.update_layout(
-            title=f"Temperature vs. Energy Consumption (All Cities)<br><b>{equation}</b> | R² = {r_squared:.3f} | Correlation = {correlation:.3f}",
-            xaxis_title="Average Temperature (°F)",
-            yaxis_title="Energy Demand (GWh)"
-        )
-        st.plotly_chart(fig_corr, use_container_width=True)
-    else:
-        st.warning("Not enough complete data to perform correlation analysis for the selected filters.")
+		fig_corr = px.scatter(
+			corr_df,
+			x='temp_avg_f',
+			y='energy_demand_gwh',
+			color='city' if corr_city_choice == "All Cities" else None,
+			trendline='ols',
+			trendline_scope='overall',
+			hover_data=['date', 'temp_avg_f', 'energy_demand_gwh']
+		)
+
+		# Compute correlation stats
+		correlation, r_squared, (slope, intercept), plot_df = get_correlation_stats(corr_df)
+
+		# Format the regression equation string
+		intercept_sign = '+' if intercept >= 0 else '-'
+		equation = f"y = {slope:.2f}x {intercept_sign} {abs(intercept):.2f}"
+
+		city_title = f" in {corr_city_choice}" if corr_city_choice != "All Cities" else " (All Cities)"
+		fig_corr.update_layout(
+			title=f"Temperature vs. Energy Consumption{city_title}<br><b>{equation}</b> | R² = {r_squared:.3f} | Correlation = {correlation:.3f}",
+			xaxis_title="Average Temperature (°F)",
+			yaxis_title="Energy Demand (GWh)"
+		)
+		st.plotly_chart(fig_corr, use_container_width=True)
+	else:
+		st.warning("Not enough complete data to perform correlation analysis for the selected filters.")
 else:
-    st.warning("No data available for correlation analysis.")
-
+	st.warning("No data available for correlation analysis.")
 
 # --- Visualization 4: Usage Patterns Heatmap ---
 st.header("Usage Patterns Heatmap")
