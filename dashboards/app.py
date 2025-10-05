@@ -337,6 +337,19 @@ def apply_force_light_theme():
     [data-testid="stAppViewContainer"] .main .block-container {
         background-color: transparent !important;
     }
+
+    /* Preserve chart colors: do NOT override Plotly / Vega / Altair chart strokes/fills/paths */
+    /* This ensures the quality-metrics-over-time chart and other visualizations keep their default colors. */
+    .stPlotlyChart svg * ,
+    .stPlotlyChart canvas,
+    .vega-embed svg * ,
+    .vega-embed canvas,
+    .stLineChart svg * ,
+    .stChart svg * {
+        color: initial !important;
+        stroke: initial !important;
+        fill: initial !important;
+    }
     </style>
     """
     st.markdown(light_theme_css, unsafe_allow_html=True)
