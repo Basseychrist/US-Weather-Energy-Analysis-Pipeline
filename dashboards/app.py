@@ -243,7 +243,10 @@ if run_historical:
 # NEW: Auto-run historical on startup if enabled (run once per session)
 if auto_run_historical and not st.session_state.get('_auto_hist_checked'):
     st.session_state['_auto_hist_checked'] = True
-    st.info("Auto-run historical is enabled — the app will run a full historical pipeline now.")
+    st.markdown(
+        "<div style='color:#000000;font-weight:600;'>Auto-run historical is enabled — the app will run a full historical pipeline now.</div>",
+        unsafe_allow_html=True,
+    )
     with st.spinner("Auto-running full historical pipeline (this may take a while)..."):
         try:
             res = run_pipeline_if_needed(force=True, mode='historical')
@@ -252,7 +255,12 @@ if auto_run_historical and not st.session_state.get('_auto_hist_checked'):
         except NameError:
             res = run_pipeline(mode='historical', timeout_seconds=3600)
     if res.get('ran'):
-        st.success("Auto historical run completed. Processed CSV updated.")
+        st.markdown(
+            "<div style='background:#e6f7ea;color:#000000;padding:8px;border-radius:6px;font-weight:600;'>"
+            "Auto historical run completed. Processed CSV updated."
+            "</div>",
+            unsafe_allow_html=True,
+        )
         st.session_state['_pipeline_last_run'] = time.time()
     else:
         st.error(f"Auto historical run failed: {res.get('reason') or res.get('stderr') or res.get('detail')}")
@@ -440,7 +448,7 @@ if show_quality:
     # --- Styled Missing Values Table (robust HTML, even when empty) ---
     st.subheader("Missing Values")
     missing_dict = report.get('missing_values', {})
-    missing_df = pd.DataFrame(list(missing_dict.items()), columns=['column','missing_count'])
+    missing_df = pd.DataFrame(list(missing_dict.items()), columns=['column', 'missing_count'])
 
     # Prepare rows (use placeholder when no missing values)
     if missing_df.empty:
@@ -478,36 +486,71 @@ if show_quality:
     days_since_latest_data = report.get('days_since_latest_data', 'N/A')
 
     col_a, col_b, col_c = st.columns(3)
-    col_a.metric("Total Temp Outliers", f"{temp_outliers_count}")
-    col_b.metric("Negative Energy Rows", f"{negative_energy_count}")
-    col_c.metric("Latest Data Date", f"{latest_data_date}", delta=f"{days_since_latest_data} days since latest")
+    # Stronger visible box: pure white background, darker border, stronger shadow
+    box_style = (
+        "background:#ffffff;border:1px solid #cfcfcf;padding:14px;border-radius:10px;"
+        "box-shadow:0 2px 6px rgba(0,0,0,0.08);text-align:center;"
+    )
+    # Force black text for labels and values
+    label_style = "color:#000000;font-weight:700;margin-bottom:8px;font-size:14px;"
+    value_style = "color:#000000;font-size:30px;font-weight:800;letter-spacing:0.5px;"
+    sub_style = "color:#222222;font-size:12px;margin-top:8px;"
+
+    col_a.markdown(
+        f"<div style='{box_style}'>"
+        f"<div style='{label_style}'>Total Temp Outliers</div>"
+        f"<div style='{value_style}'>{temp_outliers_count}</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    col_b.markdown(
+        f"<div style='{box_style}'>"
+        f"<div style='{label_style}'>Negative Energy Rows</div>"
+        f"<div style='{value_style}'>{negative_energy_count}</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    col_c.markdown(
+        f"<div style='{box_style}'>"
+        f"<div style='{label_style}'>Latest Data Date</div>"
+        f"<div style='{value_style}'>{latest_data_date}</div>"
+        f"<div style='{sub_style}'>{days_since_latest_data} days since latest</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
     # Detailed rows with examples (show a few rows that are problematic)
     st.subheader("Example Problematic Rows")
-    # show rows with any missing or outlier flags
     problems = filtered_df[
-        filtered_df[['temp_max_f','temp_min_f','energy_demand_gwh']].isnull().any(axis=1) |
-        (filtered_df['temp_max_f'] > 130) |
-        (filtered_df['temp_min_f'] < -50) |
-        (filtered_df['energy_demand_gwh'] < 0)
+        filtered_df[['temp_max_f', 'temp_min_f', 'energy_demand_gwh']].isnull().any(axis=1)
+        | (filtered_df['temp_max_f'] > 130)
+        | (filtered_df['temp_min_f'] < -50)
+        | (filtered_df['energy_demand_gwh'] < 0)
     ]
     if not problems.empty:
         st.dataframe(problems.head(50))
     else:
-        st.info("No problematic rows found in the current filter.")
+        # Render a highlighted dark box with white text for visibility
+        st.markdown(
+            "<div style='background:#222222;color:#ffffff;padding:10px;border-radius:6px;'>"
+            "No problematic rows found in the current filter."
+            "</div>",
+            unsafe_allow_html=True,
+        )
 
     # Show time series of quality metrics over the selected date range
     st.subheader("Quality Metrics Over Time")
     ts = compute_quality_timeseries(filtered_df)
     if not ts.empty:
         # Use line chart for trends
-        st.line_chart(ts.set_index('date')[['missing_total','temp_outliers','negative_energy']])
+        st.line_chart(ts.set_index('date')[['missing_total', 'temp_outliers', 'negative_energy']])
     else:
         st.info("Not enough data to compute time series metrics.")
 
     # Documentation / explanations for each check
     st.subheader("What each check does and why it matters")
-    st.markdown("""
+    st.markdown(
+        """
     - Missing Values: counts nulls in temp_max_f, temp_min_f, energy_demand_gwh. Missing data can bias analysis and break visualizations.
     - Temperature Outliers: flags temperatures > 130°F or < -50°F. These are physically implausible for most US locations and usually indicate sensor or ingestion issues.
     - Negative Energy Consumption: flags negative values which are invalid for demand (indicates data or unit errors).
@@ -516,7 +559,8 @@ if show_quality:
     Business rules:
     - Temperature thresholds (130°F / -50°F) are conservative bounds; adjust in config if needed for your domain.
     - We show per-day aggregated counts so you can detect systemic/data-source issues over time.
-    """)
+    """
+    )
 
 # --- Visualization 1: Geographic Overview ---
 st.header("Geographic Overview")
@@ -606,11 +650,25 @@ else:
 st.header("Time Series Analysis")
     
 col1, col2 = st.columns([3, 1])
+# Render explicit black labels above widgets so text is always visible
 with col1:
-    selected_ts_city = st.selectbox("Select a City for Time Series View", options=["All Cities"] + list(all_cities))
+    col1.markdown("<div style='color:#000000;font-weight:600;margin-bottom:6px'>Select a City for Time Series View</div>", unsafe_allow_html=True)
+    selected_ts_city = col1.selectbox(
+        "Select a City for Time Series View (hidden label)", 
+        options=["All Cities"] + list(all_cities), 
+        index=0,
+        key="ts_city_select",
+        label_visibility="collapsed"
+    )
 with col2:
-    make_stationary = st.checkbox("Make data stationary (apply differencing)", value=False)
-
+    col2.markdown("<div style='color:#000000;font-weight:600;margin-bottom:6px'>Make data stationary (apply differencing)</div>", unsafe_allow_html=True)
+    make_stationary = col2.checkbox(
+        "Make data stationary (hidden label)",
+        value=False,
+        key="make_stationary_chk",
+        label_visibility="collapsed"
+    )
+ 
 if selected_ts_city == "All Cities":
     ts_df = filtered_df.groupby('date').agg({
         'temp_avg_f': 'mean',
@@ -677,58 +735,70 @@ else:
 st.header("Correlation Analysis")
 
 if not filtered_df.empty:
-	# Add a selector for city-specific correlation (includes "All Cities")
-	corr_city_choice = st.selectbox("Select city for correlation", options=["All Cities"] + list(all_cities), index=0, key="corr_city_select")
+    st.markdown("<div style='color:#000000;font-weight:600;margin-bottom:6px'>Select city for correlation</div>", unsafe_allow_html=True)
+    corr_city_choice = st.selectbox(
+        "Select city for correlation (hidden label)",
+        options=["All Cities"] + list(all_cities),
+        index=0,
+        key="corr_city_select",
+        label_visibility="collapsed",
+    )
 
-	# --- Clean data for correlation analysis ---
-	corr_df = filtered_df.dropna(subset=['temp_avg_f', 'energy_demand_gwh'])
+    # --- Clean data for correlation analysis ---
+    corr_df = filtered_df.dropna(subset=['temp_avg_f', 'energy_demand_gwh'])
 
-	# Apply city filter if a specific city is selected
-	if corr_city_choice != "All Cities":
-		corr_df = corr_df[corr_df['city'] == corr_city_choice]
+    # Apply city filter if a specific city is selected
+    if corr_city_choice != "All Cities":
+        corr_df = corr_df[corr_df['city'] == corr_city_choice]
 
-	if not corr_df.empty and len(corr_df) > 2:
-		# --- Add a warning for narrow temperature ranges ---
-		temp_range = corr_df['temp_avg_f'].max() - corr_df['temp_avg_f'].min()
-		if temp_range < 20:  # Define a threshold (e.g., 20°F) for a "narrow" range
-			st.warning(
-				f"**Warning:** The temperature range in the selected data ({temp_range:.1f}°F) is very narrow. "
-				"Try selecting a wider date range for a more meaningful analysis."
-			)
+    if not corr_df.empty and len(corr_df) > 2:
+        # --- Add a warning for narrow temperature ranges ---
+        temp_range = corr_df['temp_avg_f'].max() - corr_df['temp_avg_f'].min()
+        if temp_range < 20:  # Define a threshold (e.g., 20°F) for a "narrow" range
+            st.warning(
+                f"**Warning:** The temperature range in the selected data ({temp_range:.1f}°F) is very narrow. "
+                "Try selecting a wider date range for a more meaningful analysis."
+            )
 
-		fig_corr = px.scatter(
-			corr_df,
-			x='temp_avg_f',
-			y='energy_demand_gwh',
-			color='city' if corr_city_choice == "All Cities" else None,
-			trendline='ols',
-			trendline_scope='overall',
-			hover_data=['date', 'temp_avg_f', 'energy_demand_gwh']
-		)
+        fig_corr = px.scatter(
+            corr_df,
+            x='temp_avg_f',
+            y='energy_demand_gwh',
+            color='city' if corr_city_choice == "All Cities" else None,
+            trendline='ols',
+            trendline_scope='overall',
+            hover_data=['date', 'temp_avg_f', 'energy_demand_gwh'],
+        )
 
-		# Compute correlation stats
-		correlation, r_squared, (slope, intercept), plot_df = get_correlation_stats(corr_df)
+        # Compute correlation stats
+        correlation, r_squared, (slope, intercept), plot_df = get_correlation_stats(corr_df)
 
-		# Format the regression equation string
-		intercept_sign = '+' if intercept >= 0 else '-'
-		equation = f"y = {slope:.2f}x {intercept_sign} {abs(intercept):.2f}"
+        # Format the regression equation string
+        intercept_sign = '+' if intercept >= 0 else '-'
+        equation = f"y = {slope:.2f}x {intercept_sign} {abs(intercept):.2f}"
 
-		city_title = f" in {corr_city_choice}" if corr_city_choice != "All Cities" else " (All Cities)"
-		fig_corr.update_layout(
-			title=f"Temperature vs. Energy Consumption{city_title}<br><b>{equation}</b> | R² = {r_squared:.3f} | Correlation = {correlation:.3f}",
-			xaxis_title="Average Temperature (°F)",
-			yaxis_title="Energy Demand (GWh)"
-		)
-		st.plotly_chart(fig_corr, use_container_width=True)
-	else:
-		st.warning("Not enough complete data to perform correlation analysis for the selected filters.")
+        city_title = f" in {corr_city_choice}" if corr_city_choice != "All Cities" else " (All Cities)"
+        fig_corr.update_layout(
+            title=f"Temperature vs. Energy Consumption{city_title}<br><b>{equation}</b> | R² = {r_squared:.3f} | Correlation = {correlation:.3f}",
+            xaxis_title="Average Temperature (°F)",
+            yaxis_title="Energy Demand (GWh)",
+        )
+        st.plotly_chart(fig_corr, use_container_width=True)
+    else:
+        st.warning("Not enough complete data to perform correlation analysis for the selected filters.")
 else:
-	st.warning("No data available for correlation analysis.")
+    st.warning("No data available for correlation analysis.")
 
 # --- Visualization 4: Usage Patterns Heatmap ---
 st.header("Usage Patterns Heatmap")
     
-heatmap_city = st.selectbox("Select City for Heatmap", options=list(all_cities))
+st.markdown("<div style='color:#000000;font-weight:600;margin-bottom:6px'>Select City for Heatmap</div>", unsafe_allow_html=True)
+heatmap_city = st.selectbox(
+    "Select City for Heatmap (hidden label)",
+    options=list(all_cities),
+    key="heatmap_city_select",
+    label_visibility="collapsed"
+)
     
 heatmap_df = filtered_df[filtered_df['city'] == heatmap_city]
 heatmap_data = prepare_heatmap_data(heatmap_df)
