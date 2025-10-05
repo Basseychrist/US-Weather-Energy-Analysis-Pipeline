@@ -478,9 +478,30 @@ if show_quality:
     days_since_latest_data = report.get('days_since_latest_data', 'N/A')
 
     col_a, col_b, col_c = st.columns(3)
-    col_a.metric("Total Temp Outliers", f"{temp_outliers_count}")
-    col_b.metric("Negative Energy Rows", f"{negative_energy_count}")
-    col_c.metric("Latest Data Date", f"{latest_data_date}", delta=f"{days_since_latest_data} days since latest")
+    box_style = (
+        "background:#ffffff;border:1px solid #e0e0e0;padding:12px;border-radius:8px;"
+        "box-shadow:0 1px 2px rgba(0,0,0,0.04);text-align:center;"
+    )
+    label_style = "color:#000000;font-weight:600;margin-bottom:6px;font-size:14px;"
+    value_style = "color:#000000;font-size:26px;font-weight:700;"
+    sub_style = "color:#333333;font-size:12px;margin-top:6px;"
+
+    col_a.markdown(
+        f"<div style='{box_style}'><div style='{label_style}'>Total Temp Outliers</div>"
+        f"<div style='{value_style}'>{temp_outliers_count}</div></div>",
+        unsafe_allow_html=True,
+    )
+    col_b.markdown(
+        f"<div style='{box_style}'><div style='{label_style}'>Negative Energy Rows</div>"
+        f"<div style='{value_style}'>{negative_energy_count}</div></div>",
+        unsafe_allow_html=True,
+    )
+    col_c.markdown(
+        f"<div style='{box_style}'><div style='{label_style}'>Latest Data Date</div>"
+        f"<div style='{value_style}'>{latest_data_date}</div>"
+        f"<div style='{sub_style}'>{days_since_latest_data} days since latest</div></div>",
+        unsafe_allow_html=True,
+    )
 
     # Detailed rows with examples (show a few rows that are problematic)
     st.subheader("Example Problematic Rows")
