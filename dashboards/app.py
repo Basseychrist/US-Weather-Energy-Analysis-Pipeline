@@ -13,31 +13,24 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# --- Move project root & sys.path setup here (single definition) ---
+# --- Ensure single project_root & sys.path setup (move this near the top, before any helper that uses project_root) ---
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 src_path = os.path.join(project_root, 'src')
 for _p in (project_root, src_path):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-# --- Ensure config helper is available (single definition) ---
+# --- Single robust helper to create config/config.yaml from Streamlit secrets or env ---
 def ensure_config_from_secrets():
     """
-    Robustly create config/config.yaml from Streamlit secrets or env vars.
-    Accepts:
-      - exact secrets NOAA_TOKEN, EIA_API_KEY, AUTO_RUN_HISTORICAL
-      - a 'config' secret containing JSON/YAML
-      - any secret whose value is a JSON/YAML blob (will be parsed)
-      - tolerates quoted strings and mixed key casing
-    Returns dict: {'ok': True, 'created': bool} or {'ok': False, 'reason': '...'}.
+    Create config/config.yaml from st.secrets (tolerant) or env vars or config.example.yaml.
+    Returns {'ok': True, 'created': bool} or {'ok': False, 'reason': '...'}.
     """
     import json
-
     cfg_path = os.path.join(project_root, 'config', 'config.yaml')
     if os.path.exists(cfg_path):
         return {'ok': True, 'created': False}
 
-    # Helper to strip accidental surrounding quotes
     def _strip_quotes(v):
         if not isinstance(v, str):
             return v
@@ -46,85 +39,75 @@ def ensure_config_from_secrets():
             return s[1:-1].strip()
         return s
 
-    # Collect secrets (case-insensitive keys)
+    # collect secrets case-insensitively
     secrets_map = {}
     try:
-        # st.secrets is mapping-like; build a dict with original values
         for k in list(getattr(st, "secrets", {}) or {}):
             try:
                 secrets_map[str(k)] = st.secrets[k]
             except Exception:
-                # fallback attempt
-                secrets_map[str(k)] = (st.secrets.get(k) if hasattr(st.secrets, "get") else None)
+                secrets_map[str(k)] = st.secrets.get(k) if hasattr(st.secrets, "get") else None
     except Exception:
         secrets_map = {}
-
-    # Normalize to lowercase keys for easy lookup
     lower = {k.lower(): v for k, v in secrets_map.items()}
 
-    # If user pasted a JSON/YAML blob into any secret, detect and parse it as full config
+    # attempt to parse a full config blob if provided
     base_cfg = {}
-    parsed_from_blob = False
-    # prefer 'config' key (case-insensitive)
+    parsed = False
     cfg_blob = lower.get('config')
     if cfg_blob:
         cfg_blob = _strip_quotes(cfg_blob)
         try:
-            # try JSON first
             base_cfg = json.loads(cfg_blob) if isinstance(cfg_blob, str) and cfg_blob.strip().startswith('{') else yaml.safe_load(cfg_blob)
-            if not isinstance(base_cfg, dict):
-                base_cfg = {}
-            else:
-                parsed_from_blob = True
+            if isinstance(base_cfg, dict):
+                parsed = True
         except Exception:
             base_cfg = {}
-    if not parsed_from_blob:
-        # look for any secret value that looks like a blob
+
+    if not parsed:
         for v in lower.values():
             if isinstance(v, str) and v.strip().startswith('{'):
                 try:
-                    parsed = json.loads(_strip_quotes(v))
-                    if isinstance(parsed, dict):
-                        base_cfg = parsed
-                        parsed_from_blob = True
+                    parsed_cfg = json.loads(_strip_quotes(v))
+                    if isinstance(parsed_cfg, dict):
+                        base_cfg = parsed_cfg
+                        parsed = True
                         break
                 except Exception:
                     try:
-                        parsed = yaml.safe_load(_strip_quotes(v))
-                        if isinstance(parsed, dict):
-                            base_cfg = parsed
-                            parsed_from_blob = True
+                        parsed_cfg = yaml.safe_load(_strip_quotes(v))
+                        if isinstance(parsed_cfg, dict):
+                            base_cfg = parsed_cfg
+                            parsed = True
                             break
                     except Exception:
                         pass
 
-    # Extract tokens from secrets (case-insensitive), or from nested dicts in base_cfg
+    # extract tokens (case-insensitive)
     noaa_token = None
     eia_key = None
-    # plain secrets
     if 'noaa_token' in lower:
         noaa_token = _strip_quotes(lower['noaa_token'])
     if 'eia_api_key' in lower:
         eia_key = _strip_quotes(lower['eia_api_key'])
-    # also accept NOAA / EIA nested dicts in secrets or parsed config
     if not noaa_token and isinstance(lower.get('noaa'), dict):
         noaa_token = lower.get('noaa', {}).get('token')
     if not eia_key and isinstance(lower.get('eia'), dict):
         eia_key = lower.get('eia', {}).get('api_key')
 
-    # fallback to environment variables
+    # fallback to env
     if not noaa_token:
         noaa_token = os.getenv('NOAA_TOKEN') or os.getenv('noaa_token')
     if not eia_key:
         eia_key = os.getenv('EIA_API_KEY') or os.getenv('eia_api_key')
 
-    # If parsed base_cfg already contains tokens, use them
+    # if parsed config has tokens use them
     if isinstance(base_cfg.get('noaa'), dict) and not noaa_token:
         noaa_token = base_cfg['noaa'].get('token') or base_cfg['noaa'].get('api_key')
     if isinstance(base_cfg.get('eia'), dict) and not eia_key:
         eia_key = base_cfg['eia'].get('api_key')
 
-    # If we didn't parse a full config, try to load example file as base
+    # if no full config, try example file
     if not base_cfg:
         example_path = os.path.join(project_root, 'config', 'config.example.yaml')
         if os.path.exists(example_path):
@@ -133,10 +116,7 @@ def ensure_config_from_secrets():
                     base_cfg = yaml.safe_load(f) or {}
             except Exception:
                 base_cfg = {}
-        else:
-            base_cfg = {}
 
-    # Ensure minimal structure and inject tokens
     base_cfg.setdefault('noaa', {})
     base_cfg.setdefault('eia', {})
     base_cfg.setdefault('paths', {'raw_data': 'data/raw/', 'processed_data': 'data/processed/', 'log_file': 'logs/pipeline.log'})
@@ -149,12 +129,10 @@ def ensure_config_from_secrets():
         base_cfg['eia']['api_key'] = eia_key
     base_cfg['eia'].setdefault('base_url', 'https://api.eia.gov/v2/electricity/rto/region-data/data/')
 
-    # If still no tokens and no cities, fail with instruction
     if not base_cfg.get('cities') and not (noaa_token or eia_key):
         return {'ok': False, 'reason': 'no-example-no-secrets',
-                'detail': 'Provide config.example.yaml in the repo or set Streamlit secrets NOAA_TOKEN/EIA_API_KEY (use exact key names).'}
+                'detail': 'Provide config.example.yaml or set Streamlit Secrets NOAA_TOKEN/EIA_API_KEY.'}
 
-    # Write config.yaml for main.py/subprocess to consume
     try:
         os.makedirs(os.path.join(project_root, 'config'), exist_ok=True)
         with open(cfg_path, 'w') as f:
@@ -806,9 +784,7 @@ else:
 
 # --- Visualization 2: Time Series Analysis ---
 st.header("Time Series Analysis")
-
 col1, col2 = st.columns([3, 1])
-# Render explicit black labels above widgets so text is always visible
 with col1:
     col1.markdown("<div style='color:#000000;font-weight:600;margin-bottom:6px'>Select a City for Time Series View</div>", unsafe_allow_html=True)
     selected_ts_city = col1.selectbox(
@@ -816,7 +792,7 @@ with col1:
         options=["All Cities"] + list(all_cities),
         index=0,
         key="ts_city_select",
-        label_visibility="collapsed"
+        label_visibility="collapsed",
     )
 with col2:
     col2.markdown("<div style='color:#000000;font-weight:600;margin-bottom:6px'>Make data stationary (apply differencing)</div>", unsafe_allow_html=True)
@@ -824,17 +800,13 @@ with col2:
         "Make data stationary (hidden label)",
         value=False,
         key="make_stationary_chk",
-        label_visibility="collapsed"
+        label_visibility="collapsed",
     )
 
-# Prepare timeseries dataframe (make explicit copy for in-place ops)
+# prepare timeseries df (explicit copy to avoid SettingWithCopyWarning)
 if selected_ts_city == "All Cities":
-    ts_df = filtered_df.groupby('date').agg({
-        'temp_avg_f': 'mean',
-        'energy_demand_gwh': 'sum'
-    }).reset_index()
+    ts_df = filtered_df.groupby('date').agg({'temp_avg_f': 'mean', 'energy_demand_gwh': 'sum'}).reset_index()
 else:
-    # Make an explicit copy to avoid SettingWithCopyWarning when adding diff columns
     ts_df = filtered_df[filtered_df['city'] == selected_ts_city].copy()
 
 if not ts_df.empty:
@@ -845,35 +817,20 @@ if not ts_df.empty:
     if make_stationary:
         ts_df['temp_avg_f_diff'] = ts_df['temp_avg_f'].diff()
         ts_df['energy_demand_gwh_diff'] = ts_df['energy_demand_gwh'].diff()
-        ts_df.dropna(inplace=True)
-
-        # FIX: close the string literal correctly (was unterminated)
+        ts_df = ts_df.dropna().reset_index(drop=True)
+        # FIX: properly terminated string, use correct diff column name
         y_temp, y_energy = 'temp_avg_f_diff', 'energy_demand_gwh_diff'
         title_prefix = "Daily Change in "
         yaxis_temp_title, yaxis_energy_title = "Daily Temperature Change (°F)", "Daily Energy Change (GWh)"
 
-    # Build a two-row subplot for clarity
     fig_ts = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08,
                            subplot_titles=(f"{title_prefix}Temperature in {selected_ts_city}", f"{title_prefix}Energy in {selected_ts_city}"))
-
-    fig_ts.add_trace(
-        go.Scatter(x=ts_df['date'], y=ts_df[y_temp], name=yaxis_temp_title, line=dict(color='blue')),
-        row=1, col=1
-    )
-    fig_ts.add_trace(
-        go.Scatter(x=ts_df['date'], y=ts_df[y_energy], name=yaxis_energy_title, line=dict(color='orange')),
-        row=2, col=1
-    )
-
-    fig_ts.update_layout(
-        title_text=f"{title_prefix}Temperature vs. Energy Consumption in {selected_ts_city}",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        height=600,
-    )
+    fig_ts.add_trace(go.Scatter(x=ts_df['date'], y=ts_df[y_temp], name=yaxis_temp_title, line=dict(color='blue')), row=1, col=1)
+    fig_ts.add_trace(go.Scatter(x=ts_df['date'], y=ts_df[y_energy], name=yaxis_energy_title, line=dict(color='orange')), row=2, col=1)
+    fig_ts.update_layout(title_text=f"{title_prefix}Temperature vs. Energy Consumption in {selected_ts_city}", height=600)
     fig_ts.update_yaxes(title_text=yaxis_temp_title, row=1, col=1)
     fig_ts.update_yaxes(title_text=yaxis_energy_title, row=2, col=1)
 
-    # Annotate latest values safely
     try:
         latest_date = ts_df['date'].max()
         latest_temp = float(ts_df.loc[ts_df['date'] == latest_date, y_temp].values[0])
