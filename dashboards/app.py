@@ -224,16 +224,37 @@ def run_pipeline(mode='realtime', timeout_seconds=600):
     Run main.py with the given mode using same Python executable.
     Returns dict with keys: ran (bool), stdout, stderr, reason.
     """
+    # Create required directories first to avoid permission issues
+    for path in ['data', 'data/raw', 'data/processed', 'logs']:
+        dir_path = os.path.join(project_root, *path.split('/'))
+        os.makedirs(dir_path, exist_ok=True)
+    
     main_py = os.path.join(project_root, 'main.py')
     if not os.path.exists(main_py):
         return {'ran': False, 'reason': f"main.py not found at {main_py}"}
+    
     cmd = [sys.executable, main_py, mode]
     try:
         proc = subprocess.run(cmd, cwd=project_root, capture_output=True, text=True, timeout=timeout_seconds)
         if proc.returncode == 0:
             return {'ran': True, 'stdout': proc.stdout}
         else:
-            return {'ran': False, 'stderr': proc.stderr or proc.stdout, 'returncode': proc.returncode}
+            # Enhanced error reporting
+            reason = "Unknown error"
+            if "ModuleNotFoundError" in proc.stderr:
+                reason = "Missing Python modules - check requirements"
+            elif "KeyError" in proc.stderr:
+                reason = "Configuration error - check config.yaml format"
+            elif "API" in proc.stderr and "key" in proc.stderr.lower():
+                reason = "API key error - check your API credentials"
+            
+            return {
+                'ran': False, 
+                'stderr': proc.stderr, 
+                'stdout': proc.stdout,
+                'returncode': proc.returncode,
+                'reason': reason
+            }
     except subprocess.TimeoutExpired as te:
         return {'ran': False, 'reason': 'timeout', 'detail': str(te)}
     except Exception as e:
@@ -423,14 +444,96 @@ if df is None:
         else:
             regen_msg = regen_result.get('reason') or regen_result.get('stderr') or regen_result.get('detail') or "unknown error"
 
-    # If still no data, show actionable message and stop
+    # If still no data, run diagnostics and offer to generate sample data
     if df is None:
         st.error("Processed data not available. The app attempted to generate it but failed.")
         if regen_result:
             st.error(f"Pipeline attempt failed: {regen_msg}")
         else:
             st.info("No pipeline entrypoint (main.py) found to auto-generate data. Run pipeline locally: python main.py realtime")
-        st.stop()
+        
+        # Add an expander with detailed diagnostics
+        with st.expander("🔍 Show Diagnostics & Troubleshooting", expanded=False):
+            st.markdown("### Pipeline Diagnostics")
+            
+            # Run diagnostics
+            with st.spinner("Running diagnostics..."):
+                diag_results = diagnose_pipeline_issue(project_root)
+            
+            # Display diagnostic results
+            if diag_results["suggestions"]:
+                st.subheader("Issues Found")
+                for suggestion in diag_results["suggestions"]:
+                    st.warning(suggestion)
+            
+            # Show directory structure
+            st.subheader("Directory Structure")
+            dir_data = []
+            for dir_name, info in diag_results["directories"].items():
+                dir_data.append({
+                    "Directory": dir_name,
+                    "Exists": "✅" if info.get("exists") else "❌",
+                    "Path": info.get("path", "N/A")
+                })
+            st.table(dir_data)
+            
+            # Show file status
+            st.subheader("Critical Files")
+            file_data = []
+            for file_name, info in diag_results["files"].items():
+                file_data.append({
+                    "File": file_name,
+                    "Exists": "✅" if info.get("exists") else "❌",
+                    "Size": f"{info.get('size', 0):,} bytes" if info.get("exists") else "N/A"
+                })
+            st.table(file_data)
+            
+            # Show environment info
+            st.subheader("Environment")
+            for key, value in diag_results["environment"].items():
+                st.text(f"{key}: {value}")
+            
+            # Show pipeline run details if available
+            if "pipeline_run" in diag_results:
+                st.subheader("Pipeline Run Results")
+                run_info = diag_results["pipeline_run"]
+                if "error" in run_info:
+                    st.error(f"Error: {run_info['error']}")
+                else:
+                    st.text(f"Return code: {run_info.get('returncode', 'N/A')}")
+                    if run_info.get("stdout_sample"):
+                        st.text("Standard output (sample):")
+                        st.code(run_info["stdout_sample"])
+                    if run_info.get("stderr_sample"):
+                        st.text("Standard error (sample):")
+                        st.code(run_info["stderr_sample"])
+            
+            # Add an option to generate sample data
+            st.subheader("Generate Demo Data")
+            st.markdown("""
+                You can generate sample data to preview the dashboard functionality.
+                Note: This is synthetic data for demo purposes only and does not use your actual API keys or pipeline.
+            """)
+            if st.button("Generate Sample Data for Demo"):
+                with st.spinner("Generating sample data..."):
+                    sample_result = generate_sample_data(project_root)
+                if sample_result.get("created"):
+                    st.success(f"Sample data generated ({sample_result.get('rows', 0)} rows). Refresh the page to view the dashboard.")
+                else:
+                    st.error(f"Failed to generate sample data: {sample_result.get('reason', 'unknown error')}")
+        
+        # Stop app execution unless using sample data
+        sample_csv = os.path.join(project_root, 'data', 'processed', 'weather_energy_data.csv')
+        if not os.path.exists(sample_csv):
+            st.stop()
+        else:
+            # Try to load the sample data we just generated
+            st.info("🔄 Attempting to load sample data. If this message persists, please refresh the page.")
+            df, city_df, config = load_data(time.time())  # Force cache refresh
+            if df is None:
+                st.stop()
+            else:
+                st.success("✅ Sample data loaded successfully! Note: This is synthetic data for demonstration purposes.")
 
 # --- Page Configuration ---
 st.set_page_config(
