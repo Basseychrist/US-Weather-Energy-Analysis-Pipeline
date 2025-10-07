@@ -744,14 +744,14 @@ else:
 
 # --- Visualization 2: Time Series Analysis ---
 st.header("Time Series Analysis")
-    
+
 col1, col2 = st.columns([3, 1])
 # Render explicit black labels above widgets so text is always visible
 with col1:
     col1.markdown("<div style='color:#000000;font-weight:600;margin-bottom:6px'>Select a City for Time Series View</div>", unsafe_allow_html=True)
     selected_ts_city = col1.selectbox(
-        "Select a City for Time Series View (hidden label)", 
-        options=["All Cities"] + list(all_cities), 
+        "Select a City for Time Series View (hidden label)",
+        options=["All Cities"] + list(all_cities),
         index=0,
         key="ts_city_select",
         label_visibility="collapsed"
@@ -764,68 +764,65 @@ with col2:
         key="make_stationary_chk",
         label_visibility="collapsed"
     )
- 
+
+# Prepare timeseries dataframe (make explicit copy for in-place ops)
 if selected_ts_city == "All Cities":
     ts_df = filtered_df.groupby('date').agg({
         'temp_avg_f': 'mean',
         'energy_demand_gwh': 'sum'
     }).reset_index()
 else:
-    ts_df = filtered_df[filtered_df['city'] == selected_ts_city]
-    
+    ts_df = filtered_df[filtered_df['city'] == selected_ts_city].copy()
+
 if not ts_df.empty:
+    # Default y columns
     y_temp, y_energy = 'temp_avg_f', 'energy_demand_gwh'
     title_prefix = ""
     yaxis_temp_title, yaxis_energy_title = "Avg Temperature (°F)", "Energy Consumption (GWh)"
 
+    # Make stationary if requested (first-difference)
     if make_stationary:
         ts_df['temp_avg_f_diff'] = ts_df['temp_avg_f'].diff()
         ts_df['energy_demand_gwh_diff'] = ts_df['energy_demand_gwh'].diff()
-        ts_df.dropna(inplace=True)
-        
+        ts_df = ts_df.dropna().reset_index(drop=True)
         y_temp, y_energy = 'temp_avg_f_diff', 'energy_demand_gwh_diff'
         title_prefix = "Daily Change in "
         yaxis_temp_title, yaxis_energy_title = "Daily Temperature Change (°F)", "Daily Energy Change (GWh)"
 
-if not ts_df.empty:
-    fig_ts = make_subplots(specs=[[{"secondary_y": True}]])
-    
-    # Add Temperature Line
+    # Build a two-row subplot for clarity
+    fig_ts = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08,
+                           subplot_titles=(f"{title_prefix}Temperature in {selected_ts_city}", f"{title_prefix}Energy in {selected_ts_city}"))
+
     fig_ts.add_trace(
-        go.Scatter(x=ts_df['date'], y=ts_df[y_temp], name=yaxis_temp_title, line=dict(color='orange')),
-        secondary_y=False,
+        go.Scatter(x=ts_df['date'], y=ts_df[y_temp], name=yaxis_temp_title, line=dict(color='blue')),
+        row=1, col=1
     )
-    
-    # Add Energy Consumption Line
     fig_ts.add_trace(
-        go.Scatter(x=ts_df['date'], y=ts_df[y_energy], name=yaxis_energy_title, line=dict(color='blue', dash='dot')),
-        secondary_y=True,
+        go.Scatter(x=ts_df['date'], y=ts_df[y_energy], name=yaxis_energy_title, line=dict(color='orange')),
+        row=2, col=1
     )
 
-    # --- Robust Weekend Highlighting ---
-    # Find all Saturdays in the dataframe's date range
-    saturdays = ts_df[ts_df['date'].dt.dayofweek == 5]
-    for sat in saturdays['date']:
-        # For each Saturday, add a shaded rectangle covering the next 48 hours
-        fig_ts.add_vrect(
-            x0=sat, 
-            x1=sat + pd.Timedelta(days=2),
-            fillcolor="rgba(200, 200, 200, 0.2)", 
-            line_width=0, 
-            layer="below"
-        )
-    
     fig_ts.update_layout(
         title_text=f"{title_prefix}Temperature vs. Energy Consumption in {selected_ts_city}",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        height=600,
     )
-    fig_ts.update_yaxes(title_text=yaxis_temp_title, secondary_y=False)
-    fig_ts.update_yaxes(title_text=yaxis_energy_title, secondary_y=True)
-    
+    fig_ts.update_yaxes(title_text=yaxis_temp_title, row=1, col=1)
+    fig_ts.update_yaxes(title_text=yaxis_energy_title, row=2, col=1)
+
+    # Annotate latest values safely
+    try:
+        latest_date = ts_df['date'].max()
+        latest_temp = float(ts_df.loc[ts_df['date'] == latest_date, y_temp].values[0])
+        latest_energy = float(ts_df.loc[ts_df['date'] == latest_date, y_energy].values[0])
+        fig_ts.add_annotation(x=latest_date, y=latest_temp, text=f"Latest Temp: {latest_temp:.1f}°F", showarrow=True, arrowhead=2, ax=0, ay=-30, font=dict(color='blue'))
+        fig_ts.add_annotation(x=latest_date, y=latest_energy, text=f"Latest Energy: {latest_energy:,.0f} GWh", showarrow=True, arrowhead=2, ax=0, ay=-30, font=dict(color='orange'))
+    except Exception:
+        pass
+
     st.plotly_chart(fig_ts, use_container_width=True)
 else:
-    st.warning("No time series data to display for the selected filters.")
-
+    st.warning(f"No time series data available for {selected_ts_city} in the selected date range.")
 
 # --- Visualization 3: Correlation Analysis ---
 st.header("Correlation Analysis")
