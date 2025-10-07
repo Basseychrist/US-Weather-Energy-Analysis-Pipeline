@@ -13,6 +13,19 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+# Add import for debug_helper
+try:
+    from dashboards.debug_helper import diagnose_pipeline_issue, generate_sample_data
+except ImportError:
+    try:
+        from debug_helper import diagnose_pipeline_issue, generate_sample_data
+    except ImportError:
+        # Define minimal stubs if debug_helper can't be imported
+        def diagnose_pipeline_issue(*args, **kwargs):
+            return {"suggestions": ["Debug helper not available"], "directories": {}, "files": {}, "environment": {}}
+        def generate_sample_data(*args, **kwargs):
+            return {"created": False, "reason": "Debug helper not available"}
+
 # --- Ensure project_root & sys.path are defined once (move here if needed) ---
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 src_path = os.path.join(project_root, 'src')
