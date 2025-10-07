@@ -1,0 +1,50 @@
+# IMPORTANT: This file should contain your local secrets and should NOT be committed.
+# Replace the placeholders below with your real keys locally and keep this file out of Git.
+noaa:
+  token: "<YOUR_NOAA_TOKEN_HERE>"
+  base_url: "https://www.ncdc.noaa.gov/cdo-web/api/v2/data"
+eia:
+  api_key: "<YOUR_EIA_API_KEY_HERE>"
+  base_url: "https://api.eia.gov/v2/electricity/rto/region-data/data/"
+
+paths:
+  raw_data: "data/raw/"
+  processed_data: "data/processed/"
+  log_file: "logs/pipeline.log"
+
+cities:
+  - name: "New York"
+    state: "New York"
+    noaa_station_id: "GHCND:USW00094728"
+    eia_region_code: "NYIS"
+    lat: 40.7128
+    lon: -74.0060
+  - name: "Chicago"
+    state: "Illinois"
+    noaa_station_id: "GHCND:USW00094846"
+    eia_region_code: "PJM"
+    lat: 41.8781
+    lon: -87.6298
+  - name: "Houston"
+    state: "Texas"
+    noaa_station_id: "GHCND:USW00012960"
+    eia_region_code: "ERCO"
+    lat: 29.7604
+    lon: -95.3698
+  - name: "Phoenix"
+    state: "Arizona"
+    noaa_station_id: "GHCND:USW00023183"
+    eia_region_code: "AZPS"
+    lat: 33.4484
+    lon: -112.0740
+  - name: "Seattle"
+    state: "Washington"
+    noaa_station_id: "GHCND:USW00024233"
+    eia_region_code: "SCL"
+    lat: 47.6062
+    lon: -122.3321
+
+data_quality:
+  temp_outlier_fahrenheit:
+    max: 130
+    min: -50
