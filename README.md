@@ -1,4 +1,4 @@
-# Project 1: US Weather + Energy Analysis Pipeline
+# Project : US Weather + Energy Analysis Pipeline
 
 This project automates the process of fetching, cleaning, and analyzing weather and energy data for major US cities. It helps energy companies understand how weather impacts energy demand.
 
