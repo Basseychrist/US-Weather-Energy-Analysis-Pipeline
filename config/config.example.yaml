@@ -46,11 +46,3 @@ data_quality:
   temp_outlier_fahrenheit:
     max: 130
     min: -50
-
-example_city:
-  name: "Sample City"
-  state: "Sample State"
-  noaa_station_id: "GHCND:USW00000000"
-  eia_region_code: "SCRT"
-  lat: 35.0000
-  lon: -90.0000
