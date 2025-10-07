@@ -1,8 +1,8 @@
 noaa:
-  token: "ApeuJLGlcWpIbXLYSDLOBnHGgEyECMTV"
+  token: "<YOUR_NOAA_TOKEN_HERE>"
   base_url: "https://www.ncdc.noaa.gov/cdo-web/api/v2/data"
 eia:
-  api_key: "0w49jQ68YHO8K6DQxMevcpZozgg4utnJoJhvJVvn"
+  api_key: "<YOUR_EIA_API_KEY_HERE>"
   base_url: "https://api.eia.gov/v2/electricity/rto/region-data/data/"
 
 paths:
@@ -47,4 +47,10 @@ data_quality:
     max: 130
     min: -50
 
-
+example_city:
+  name: "Sample City"
+  state: "Sample State"
+  noaa_station_id: "GHCND:USW00000000"
+  eia_region_code: "SCRT"
+  lat: 35.0000
+  lon: -90.0000
