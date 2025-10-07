@@ -57,7 +57,9 @@ python main.py historical
 ```bash
 streamlit run dashboards/app.py
 ```
+
 <!--  -->
+
 - Open the link shown in your terminal to view the dashboard in your browser.
 
 ---
@@ -247,3 +249,68 @@ os.getenv("AUTO_RUN_HISTORICAL", "false").lower() in ("1", "true", "yes")
 ```
 
 Valid values: true, 1, yes (case-insensitive). Remove any AUTO_RUN_HISTORICAL lines from config files if present.
+
+## Streamlit Cloud: what to put in Secrets / Environment variables
+
+Summary:
+
+- Do NOT put API keys in the repository. Use Streamlit Cloud Secrets (or env vars) instead.
+- Add the keys below to the app's Secrets in the Streamlit Cloud UI.
+
+Exact keys to add (key → value)
+
+- NOAA_TOKEN → your NOAA token (e.g. ApeuJLGlcWpI... )
+- EIA_API_KEY → your EIA API key (e.g. 0w49jQ68YH... )
+- AUTO_RUN_HISTORICAL → true or false (optional; controls auto-run default)
+
+How to add them in Streamlit Cloud:
+
+1. Visit your app on https://share.streamlit.io → Manage app → Settings → Secrets / Environment variables.
+2. Create new entries:
+   - NOAA_TOKEN = your_real_noaa_token
+   - EIA_API_KEY = your_real_eia_key
+   - AUTO_RUN_HISTORICAL = true # optional; set to "true" to enable auto historical run by default
+
+How to access secrets in the app (recommended)
+
+- Use st.secrets (preferred on Streamlit Cloud) or os.getenv.
+
+Example (preferred - Streamlit secrets):
+
+```python
+# filepath: c:\Users\LENOVO X1 CARBON\Desktop\US-Weather-Energy-Analysis-Pipeline\dashboards\app.py
+# ...existing code...
+import streamlit as st
+# Read secrets (Streamlit Cloud):
+noaa_token = st.secrets.get("NOAA_TOKEN") or st.secrets.get("noaa", {}).get("token")
+eia_key = st.secrets.get("EIA_API_KEY") or st.secrets.get("eia", {}).get("api_key")
+auto_hist = str(st.secrets.get("AUTO_RUN_HISTORICAL", "true")).lower() in ("1","true","yes")
+# ...existing code...
+```
+
+Example (fallback - environment variables):
+
+```python
+import os
+noaa_token = os.getenv("NOAA_TOKEN")
+eia_key = os.getenv("EIA_API_KEY")
+auto_hist = os.getenv("AUTO_RUN_HISTORICAL", "true").lower() in ("1","true","yes")
+```
+
+Git housekeeping (if you previously committed config/config.yaml with keys)
+
+- Remove tracked file from git index (run locally once):
+
+```bash
+git rm --cached config/config.yaml
+git add .gitignore config/config.example.yaml
+git commit -m "Stop tracking secrets; use Streamlit Secrets for API keys"
+```
+
+- Verify the file stays locally for development but is ignored by Git.
+
+Notes
+
+- Use st.secrets on Streamlit Cloud; it is secure and automatically injected into the runtime.
+- Keep the placeholder config/config.example.yaml in the repo so collaborators know required structure.
+- If your app reads config/config.yaml currently, update the code to prefer st.secrets/os.getenv as shown above so deployed app uses Cloud secrets.
