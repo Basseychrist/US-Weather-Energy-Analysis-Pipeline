@@ -13,7 +13,14 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# --- Ensure config helper is available early (moved here so it's defined before first use) ---
+# --- Move project root & sys.path setup here so helper can reference it ---
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+src_path = os.path.join(project_root, 'src')
+for _p in (project_root, src_path):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+# --- Ensure config helper is available (now after project_root) ---
 def ensure_config_from_secrets():
     """
     Ensure config/config.yaml exists. Try these sources in order:
