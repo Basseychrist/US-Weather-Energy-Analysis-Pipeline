@@ -1704,3 +1704,44 @@
 2025-10-05 06:28:12,540 - INFO - Final Data Quality Report: {'missing_values': {'date': 0, 'temp_max_f': 0, 'temp_min_f': 0, 'city': 0, 'temp_avg_f': 0, 'energy_demand_gwh': 0}, 'temp_outliers_count': 0, 'negative_energy_count': 0, 'latest_data_date': '2025-10-04', 'days_since_latest_data': 1}
 2025-10-05 06:28:12,560 - INFO - Pipeline finished. Processed data saved to data/processed/weather_energy_data.csv
 2025-10-05 06:28:12,567 - INFO - --- Pipeline execution completed successfully. ---
+2025-10-07 17:46:06,324 - INFO - --- Application starting. ---
+2025-10-07 17:46:06,327 - INFO - --- Pipeline run started. ---
+2025-10-07 17:46:06,342 - INFO - Running HISTORICAL data load from 2025-04-10 to 2025-10-06.
+2025-10-07 17:46:06,343 - INFO - Fetching weather data for New York from 2025-04-10 to 2025-10-06
+2025-10-07 17:46:06,343 - INFO - Fetching weather data for New York from 2025-04-10 to 2025-10-06
+2025-10-07 17:46:50,333 - WARNING - Request failed: HTTPSConnectionPool(host='www.ncdc.noaa.gov', port=443): Read timed out. (read timeout=30). Retrying in 2.00 seconds...
+2025-10-07 17:46:55,631 - INFO - Successfully fetched weather data for New York.
+2025-10-07 17:46:55,631 - INFO - Successfully fetched weather data for New York.
+2025-10-07 17:46:55,709 - INFO - Fetching weather data for Chicago from 2025-04-10 to 2025-10-06
+2025-10-07 17:46:55,709 - INFO - Fetching weather data for Chicago from 2025-04-10 to 2025-10-06
+2025-10-07 17:46:58,257 - INFO - Successfully fetched weather data for Chicago.
+2025-10-07 17:46:58,257 - INFO - Successfully fetched weather data for Chicago.
+2025-10-07 17:46:58,279 - INFO - Fetching weather data for Houston from 2025-04-10 to 2025-10-06
+2025-10-07 17:46:58,280 - INFO - Fetching weather data for Houston from 2025-04-10 to 2025-10-06
+2025-10-07 17:47:01,666 - INFO - Successfully fetched weather data for Houston.
+2025-10-07 17:47:01,667 - INFO - Successfully fetched weather data for Houston.
+2025-10-07 17:47:01,689 - INFO - Fetching weather data for Phoenix from 2025-04-10 to 2025-10-06
+2025-10-07 17:47:01,689 - INFO - Fetching weather data for Phoenix from 2025-04-10 to 2025-10-06
+2025-10-07 17:47:04,149 - INFO - Successfully fetched weather data for Phoenix.
+2025-10-07 17:47:04,149 - INFO - Successfully fetched weather data for Phoenix.
+2025-10-07 17:47:04,172 - INFO - Fetching weather data for Seattle from 2025-04-10 to 2025-10-06
+2025-10-07 17:47:04,172 - INFO - Fetching weather data for Seattle from 2025-04-10 to 2025-10-06
+2025-10-07 17:47:07,402 - INFO - Successfully fetched weather data for Seattle.
+2025-10-07 17:47:07,403 - INFO - Successfully fetched weather data for Seattle.
+2025-10-07 17:47:07,423 - INFO - Fetching energy data for New York from 2025-04-10 to 2025-10-06
+2025-10-07 17:47:34,693 - INFO - Successfully fetched energy data for New York.
+2025-10-07 17:47:34,856 - INFO - Fetching energy data for Chicago from 2025-04-10 to 2025-10-06
+2025-10-07 17:48:01,302 - INFO - Successfully fetched energy data for Chicago.
+2025-10-07 17:48:01,562 - INFO - Fetching energy data for Houston from 2025-04-10 to 2025-10-06
+2025-10-07 17:48:21,517 - INFO - Successfully fetched energy data for Houston.
+2025-10-07 17:48:21,700 - INFO - Fetching energy data for Phoenix from 2025-04-10 to 2025-10-06
+2025-10-07 17:49:09,301 - INFO - Successfully fetched energy data for Phoenix.
+2025-10-07 17:49:09,448 - INFO - Fetching energy data for Seattle from 2025-04-10 to 2025-10-06
+2025-10-07 17:49:40,789 - INFO - Successfully fetched energy data for Seattle.
+2025-10-07 17:49:40,988 - INFO - Data Quality Report: {'missing_values': {'date': 0, 'temp_max_f': 0, 'temp_min_f': 0, 'city': 0, 'temp_avg_f': 0, 'energy_demand_gwh': 0}, 'temp_outliers_count': 0, 'negative_energy_count': 0, 'latest_data_date': '2025-10-06', 'days_since_latest_data': 1}
+2025-10-07 17:49:40,989 - INFO - Final Data Quality Report: {'missing_values': {'date': 0, 'temp_max_f': 0, 'temp_min_f': 0, 'city': 0, 'temp_avg_f': 0, 'energy_demand_gwh': 0}, 'temp_outliers_count': 0, 'negative_energy_count': 0, 'latest_data_date': '2025-10-06', 'days_since_latest_data': 1}
+2025-10-07 17:49:41,011 - INFO - Pipeline finished. Processed data saved to data/processed/weather_energy_data.csv
+2025-10-07 17:49:41,017 - INFO - Data Quality Report: {'missing_values': {'date': 0, 'temp_max_f': 0, 'temp_min_f': 0, 'city': 0, 'temp_avg_f': 0, 'energy_demand_gwh': 0}, 'temp_outliers_count': 0, 'negative_energy_count': 0, 'latest_data_date': '2025-10-06', 'days_since_latest_data': 1}
+2025-10-07 17:49:41,017 - INFO - Final Data Quality Report: {'missing_values': {'date': 0, 'temp_max_f': 0, 'temp_min_f': 0, 'city': 0, 'temp_avg_f': 0, 'energy_demand_gwh': 0}, 'temp_outliers_count': 0, 'negative_energy_count': 0, 'latest_data_date': '2025-10-06', 'days_since_latest_data': 1}
+2025-10-07 17:49:41,034 - INFO - Pipeline finished. Processed data saved to data/processed/weather_energy_data.csv
+2025-10-07 17:49:41,044 - INFO - --- Pipeline execution completed successfully. ---
