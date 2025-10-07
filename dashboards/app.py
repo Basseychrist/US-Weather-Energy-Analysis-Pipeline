@@ -308,30 +308,48 @@ run_historical = st.sidebar.button("Run historical load (full)", key="run_histor
 if manual_run:
     with st.spinner("Running pipeline (realtime)..."):
         res = run_pipeline_if_needed(force=True) if 'run_pipeline_if_needed' in globals() else run_pipeline(mode='realtime')
+    st.session_state['_pipeline_last_result'] = res
     if res.get('ran'):
         st.sidebar.success("Realtime pipeline completed and data refreshed.")
         st.session_state['_pipeline_last_run'] = time.time()
     else:
         st.sidebar.error(f"Realtime pipeline failed: {res.get('reason') or res.get('stderr') or res.get('detail')}")
+        # Show detailed output in an expander for debugging
+        with st.sidebar.expander("Realtime run details (stdout / stderr)"):
+            st.write("Reason:", res.get('reason'))
+            st.write("Detail:", res.get('detail'))
+            if res.get('stdout'):
+                st.subheader("STDOUT")
+                st.code(res.get('stdout')[:10000])
+            if res.get('stderr'):
+                st.subheader("STDERR")
+                st.code(res.get('stderr')[:10000])
 
-# Manual historical run handling (existing)
+# Handle historical full load (may be long-running)
 if run_historical:
     st.sidebar.warning("Historical load can be long-running. Keep this session open until it finishes.")
     with st.spinner("Running full historical pipeline (this may take a while)..."):
-        # Prefer helper; fallback to run_pipeline
         try:
             res = run_pipeline_if_needed(force=True, mode='historical')
         except TypeError:
             res = run_pipeline(mode='historical', timeout_seconds=3600)
         except NameError:
             res = run_pipeline(mode='historical', timeout_seconds=3600)
+    st.session_state['_pipeline_last_result'] = res
     if res.get('ran'):
         st.sidebar.success("Historical pipeline completed. Processed CSV updated.")
         st.session_state['_pipeline_last_run'] = time.time()
     else:
         st.sidebar.error(f"Historical pipeline failed: {res.get('reason') or res.get('stderr') or res.get('detail')}")
-        if res.get('stderr'):
-            st.sidebar.text(res.get('stderr')[:200])
+        with st.sidebar.expander("Historical run details (stdout / stderr)"):
+            st.write("Reason:", res.get('reason'))
+            st.write("Detail:", res.get('detail'))
+            if res.get('stdout'):
+                st.subheader("STDOUT")
+                st.code(res.get('stdout')[:10000])
+            if res.get('stderr'):
+                st.subheader("STDERR")
+                st.code(res.get('stderr')[:10000])
 
 # NEW: Auto-run historical on startup if enabled (run once per session)
 if auto_run_historical and not st.session_state.get('_auto_hist_checked'):
@@ -342,12 +360,13 @@ if auto_run_historical and not st.session_state.get('_auto_hist_checked'):
     )
     with st.spinner("Auto-running full historical pipeline (this may take a while)..."):
         try:
-            res = run_pipeline_if_needed(force=True, mode='historical')
+            auto_res = run_pipeline_if_needed(force=True, mode='historical')
         except TypeError:
-            res = run_pipeline(mode='historical', timeout_seconds=3600)
+            auto_res = run_pipeline(mode='historical', timeout_seconds=3600)
         except NameError:
-            res = run_pipeline(mode='historical', timeout_seconds=3600)
-    if res.get('ran'):
+            auto_res = run_pipeline(mode='historical', timeout_seconds=3600)
+    st.session_state['_pipeline_last_result'] = auto_res
+    if auto_res.get('ran'):
         st.markdown(
             "<div style='background:#e6f7ea;color:#000000;padding:8px;border-radius:6px;font-weight:600;'>"
             "Auto historical run completed. Processed CSV updated."
@@ -356,7 +375,35 @@ if auto_run_historical and not st.session_state.get('_auto_hist_checked'):
         )
         st.session_state['_pipeline_last_run'] = time.time()
     else:
-        st.error(f"Auto historical run failed: {res.get('reason') or res.get('stderr') or res.get('detail')}")
+        # Show actionable error and details
+        st.error(f"Auto historical run failed: {auto_res.get('reason') or auto_res.get('detail')}")
+        with st.expander("Auto-run details (stdout / stderr / config helper)"):
+            st.write("Reason:", auto_res.get('reason'))
+            st.write("Detail:", auto_res.get('detail'))
+            if auto_res.get('stdout'):
+                st.subheader("STDOUT")
+                st.code(auto_res.get('stdout')[:10000])
+            if auto_res.get('stderr'):
+                st.subheader("STDERR")
+                st.code(auto_res.get('stderr')[:10000])
+
+# --- Sidebar: show last pipeline run details if present ---
+if st.session_state.get('_pipeline_last_result'):
+    last = st.session_state['_pipeline_last_result']
+    with st.sidebar.expander("Last pipeline run output (click to expand)", expanded=False):
+        st.write("Status:", "ran" if last.get('ran') else "failed")
+        if last.get('reason'):
+            st.write("Reason:", last.get('reason'))
+        if last.get('returncode') is not None:
+            st.write("Return code:", last.get('returncode'))
+        if last.get('stdout'):
+            st.subheader("STDOUT")
+            st.code(last.get('stdout')[:5000])
+        if last.get('stderr'):
+            st.subheader("STDERR")
+            st.code(last.get('stderr')[:5000])
+        if last.get('detail'):
+            st.write("Detail:", last.get('detail'))
 
 # --- Cached data loading and pipeline triggering (existing logic) ---
 # --- Attempt to load data, if load_data returns None then try one regen run and retry load ---
@@ -371,6 +418,7 @@ if df is None:
     if os.path.exists(main_py):
         with st.spinner("Processed data missing or invalid: running pipeline to generate it..."):
             regen_result = run_pipeline(mode='realtime')
+        st.session_state['_pipeline_last_result'] = regen_result
         if regen_result.get('ran'):
             st.success("Pipeline finished; attempting to load processed data.")
             st.session_state['_pipeline_last_run'] = time.time()
@@ -383,7 +431,17 @@ if df is None:
     if df is None:
         st.error("Processed data not available. The app attempted to generate it but failed.")
         if regen_result:
+            # Show detailed pipeline output for debugging
             st.error(f"Pipeline attempt failed: {regen_msg}")
+            with st.expander("Pipeline run output (stdout / stderr / config helper)"):
+                st.write("Reason:", regen_result.get('reason'))
+                st.write("Detail:", regen_result.get('detail'))
+                if regen_result.get('stdout'):
+                    st.subheader("STDOUT")
+                    st.code(regen_result.get('stdout')[:10000])
+                if regen_result.get('stderr'):
+                    st.subheader("STDERR")
+                    st.code(regen_result.get('stderr')[:10000])
         else:
             st.info("No pipeline entrypoint (main.py) found to auto-generate data. Run pipeline locally: python main.py realtime")
         st.stop()
