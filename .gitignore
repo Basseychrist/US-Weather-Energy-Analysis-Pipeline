@@ -1,3 +1,4 @@
 //ignore config/config.yaml
 # Ignore API keys and sensitive information
 /config/config.yaml
+/config.yaml
