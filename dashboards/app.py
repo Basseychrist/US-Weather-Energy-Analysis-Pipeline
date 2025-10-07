@@ -880,7 +880,64 @@ if not ts_df.empty:
         ts_df['energy_demand_gwh_diff'] = ts_df['energy_demand_gwh'].diff()
         ts_df.dropna(inplace=True)
         
-        y_temp, y_energy = 'temp_avg_f_diff', '
+        y_temp, y_energy = 'temp_avg_f_diff', 'energy_demand_gwh_diff'
+        title_prefix = "Daily Change in "
+        yaxis_temp_title, yaxis_energy_title = "Daily Temperature Change (°F)", "Daily Energy Change (GWh)"
+
+    # --- Main time series chart: Temperature and Energy Usage over Time ---
+    fig_ts = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.1,
+        subplot_titles=(f"{title_prefix}Temperature and Energy Usage in {selected_ts_city}", ""),
+    )
+
+    # Add traces
+    fig_ts.add_trace(
+        go.Scatter(x=ts_df['date'], y=ts_df[y_temp],
+                   mode='lines+markers', name='Avg Temperature (°F)',
+                   line=dict(color='blue', width=2)),
+        row=1, col=1
+    )
+    fig_ts.add_trace(
+        go.Scatter(x=ts_df['date'], y=ts_df[y_energy],
+                   mode='lines+markers', name='Energy Consumption (GWh)',
+                   line=dict(color='orange', width=2)),
+        row=2, col=1
+    )
+
+    # --- Update layout for the time series chart ---
+    fig_ts.update_layout(
+        title_text=f"{title_prefix}Temperature and Energy Usage in {selected_ts_city}",
+        title_font=dict(size=16, color='black'),
+        xaxis_title="Date",
+        yaxis_title=yaxis_temp_title,
+        yaxis2_title=yaxis_energy_title,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=40, r=40, t=40, b=40),
+        height=600,  # Increased height for better readability
+    )
+
+    # --- Add annotations for latest data point ---
+    latest_date = ts_df['date'].max()
+    latest_temp = ts_df.loc[ts_df['date'] == latest_date, y_temp].values[0]
+    latest_energy = ts_df.loc[ts_df['date'] == latest_date, y_energy].values[0]
+    fig_ts.add_annotation(
+        x=latest_date, y=latest_temp,
+        text=f"Latest Temp: {latest_temp:.1f}°F",
+        showarrow=True, arrowhead=2, ax=0, ay=-40,
+        font=dict(size=12, color='blue')
+    )
+    fig_ts.add_annotation(
+        x=latest_date, y=latest_energy,
+        text=f"Latest Energy: {latest_energy:,.0f} GWh",
+        showarrow=True, arrowhead=2, ax=0, ay=-40,
+        font=dict(size=12, color='orange')
+    )
+
+    st.plotly_chart(fig_ts, use_container_width=True)
+else:
+    st.warning(f"No time series data available for {selected_ts_city} in the selected date range.")
 
 # --- Visualization 3: Correlation Analysis ---
 st.header("Correlation Analysis")
