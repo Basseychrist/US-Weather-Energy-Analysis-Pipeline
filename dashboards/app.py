@@ -868,7 +868,8 @@ if selected_ts_city == "All Cities":
         'energy_demand_gwh': 'sum'
     }).reset_index()
 else:
-    ts_df = filtered_df[filtered_df['city'] == selected_ts_city]
+    # Make an explicit copy to avoid SettingWithCopyWarning when we add diff columns
+    ts_df = filtered_df[filtered_df['city'] == selected_ts_city].copy()
     
 if not ts_df.empty:
     y_temp, y_energy = 'temp_avg_f', 'energy_demand_gwh'
