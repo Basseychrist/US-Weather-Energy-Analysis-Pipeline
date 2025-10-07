@@ -96,6 +96,34 @@ def diagnose_pipeline_issue(project_root=None):
                 "command": " ".join(cmd)
             }
             
+            # Enhanced error detection - check for API errors even if return code is 0
+            output_combined = proc.stdout + proc.stderr
+            
+            # Look for common API errors
+            if "400 Client Error" in output_combined:
+                results["suggestions"].append("NOAA API returned 400 Client Error - check date ranges and parameters")
+                if "www.ncdc.noaa.gov" in output_combined:
+                    results["environment"]["noaa_api_error"] = True
+                    results["suggestions"].append("NOAA API request failed - validate your token and request parameters")
+            
+            if "401" in output_combined and "Unauthorized" in output_combined:
+                if "ncdc.noaa.gov" in output_combined:
+                    results["environment"]["noaa_auth_error"] = True
+                    results["suggestions"].append("NOAA API authentication failed - check your token")
+                if "api.eia.gov" in output_combined:
+                    results["environment"]["eia_auth_error"] = True
+                    results["suggestions"].append("EIA API authentication failed - check your API key")
+            
+            if "429" in output_combined:
+                results["suggestions"].append("Rate limit exceeded - consider adding delays between API requests")
+            
+            if "503" in output_combined or "502" in output_combined:
+                results["suggestions"].append("API service unavailable - the data provider's server may be down")
+            
+            # Check for date-related issues
+            if "date" in output_combined.lower() and "invalid" in output_combined.lower():
+                results["suggestions"].append("Invalid date format or range detected - check your date parameters")
+            
             if proc.returncode != 0:
                 results["suggestions"].append(f"Pipeline failed with return code {proc.returncode}")
                 if "ModuleNotFoundError" in proc.stderr:
@@ -116,12 +144,76 @@ def diagnose_pipeline_issue(project_root=None):
                     results["suggestions"].append("Output CSV exists but is empty")
             else:
                 results["suggestions"].append("Pipeline did not create output CSV file")
+                
+            # If output file doesn't exist but return code is 0, it's a partial success/silent failure
+            if proc.returncode == 0 and not output_exists:
+                results["suggestions"].append(
+                    "Pipeline returned success but did not create output file - check logs for warnings"
+                )
         except subprocess.TimeoutExpired:
             results["pipeline_run"] = {"error": "Pipeline timed out after 120 seconds"}
             results["suggestions"].append("Pipeline execution timed out - possibly hanging")
         except Exception as e:
             results["pipeline_run"] = {"error": str(e)}
             results["suggestions"].append(f"Error running pipeline: {str(e)}")
+    
+    # Add an API connection test section
+    results["api_tests"] = {}
+    try:
+        # Test NOAA API connection if token exists
+        if results["environment"].get("has_noaa_token"):
+            # Don't make actual API calls here, just report that test should be run manually
+            results["api_tests"]["noaa"] = {
+                "message": "Found NOAA token, but manual testing recommended"
+            }
+            results["suggestions"].append(
+                "Consider testing NOAA API manually with: "
+                "curl -H 'token: YOUR_TOKEN' https://www.ncdc.noaa.gov/cdo-web/api/v2/datasets"
+            )
+        
+        # Test EIA API connection if key exists
+        if results["environment"].get("has_eia_key"):
+            results["api_tests"]["eia"] = {
+                "message": "Found EIA API key, but manual testing recommended"
+            }
+            results["suggestions"].append(
+                "Consider testing EIA API manually"
+            )
+    except Exception as e:
+        results["api_tests"]["error"] = str(e)
+    
+    # Add a solution section for common issues
+    if not results["suggestions"]:
+        results["solutions"] = ["No issues detected. If problems persist, try generating sample data."]
+    else:
+        results["solutions"] = []
+        
+        # NOAA 400 error solutions
+        if any("NOAA API" in s and "400" in s for s in results["suggestions"]):
+            results["solutions"].append(
+                "For NOAA API 400 errors: "
+                "1. Check date ranges (should be within available data window) "
+                "2. Verify station IDs exist "
+                "3. Ensure datasetid and datatypeid parameters are valid"
+            )
+        
+        # Authentication issues
+        if any("authentication failed" in s for s in results["suggestions"]):
+            results["solutions"].append(
+                "For API authentication issues: "
+                "1. Verify token/key is correct and not expired "
+                "2. Check for whitespace or quote characters in the token "
+                "3. Ensure the token is properly set in config.yaml"
+            )
+            
+        # Missing output file
+        if any("did not create output file" in s for s in results["suggestions"]):
+            results["solutions"].append(
+                "For missing output file despite successful run: "
+                "1. Check if API returned empty responses "
+                "2. Verify data processing logic correctly saves results "
+                "3. Try the sample data generator to validate dashboard functionality"
+            )
     
     return results
 
