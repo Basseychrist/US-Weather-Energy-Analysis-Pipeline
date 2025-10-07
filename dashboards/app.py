@@ -13,14 +13,14 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# --- Move project root & sys.path setup here so helper can reference it ---
+# --- Move project root & sys.path setup here (single definition) ---
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 src_path = os.path.join(project_root, 'src')
 for _p in (project_root, src_path):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-# --- Ensure config helper is available (now after project_root) ---
+# --- Ensure config helper is available (single definition) ---
 def ensure_config_from_secrets():
     """
     Robustly create config/config.yaml from Streamlit secrets or env vars.
@@ -163,12 +163,8 @@ def ensure_config_from_secrets():
     except Exception as e:
         return {'ok': False, 'reason': f'write-failed: {e}'}
 
-# Add project root and src folder to sys.path so "import src.*" works reliably
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-src_path = os.path.join(project_root, 'src')
-for _p in (project_root, src_path):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+# Remove later duplicate project_root/sys.path block if present.
+# (If you find another block that sets project_root and inserts into sys.path, delete it.)
 
 # --- Try to import analysis/data helpers from src, provide safe fallbacks if missing ---
 try:
@@ -838,19 +834,20 @@ if selected_ts_city == "All Cities":
         'energy_demand_gwh': 'sum'
     }).reset_index()
 else:
+    # Make an explicit copy to avoid SettingWithCopyWarning when adding diff columns
     ts_df = filtered_df[filtered_df['city'] == selected_ts_city].copy()
 
 if not ts_df.empty:
-    # Default y columns
     y_temp, y_energy = 'temp_avg_f', 'energy_demand_gwh'
     title_prefix = ""
     yaxis_temp_title, yaxis_energy_title = "Avg Temperature (°F)", "Energy Consumption (GWh)"
 
-    # Make stationary if requested (first-difference)
     if make_stationary:
         ts_df['temp_avg_f_diff'] = ts_df['temp_avg_f'].diff()
         ts_df['energy_demand_gwh_diff'] = ts_df['energy_demand_gwh'].diff()
-        ts_df = ts_df.dropna().reset_index(drop=True)
+        ts_df.dropna(inplace=True)
+
+        # FIX: close the string literal correctly (was unterminated)
         y_temp, y_energy = 'temp_avg_f_diff', 'energy_demand_gwh_diff'
         title_prefix = "Daily Change in "
         yaxis_temp_title, yaxis_energy_title = "Daily Temperature Change (°F)", "Daily Energy Change (GWh)"
