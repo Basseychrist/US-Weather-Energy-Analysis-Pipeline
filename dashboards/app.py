@@ -93,12 +93,86 @@ except Exception as e:
         report['days_since_latest_data'] = (pd.Timestamp.now() - latest_date).days if pd.notnull(latest_date) else 'N/A'
         return report
 
+def ensure_config_from_secrets():
+    """
+    If config/config.yaml is missing, attempt to create it from Streamlit secrets or env vars.
+    Returns {'ok': True} on success, or {'ok': False, 'reason': '...'} on failure.
+    """
+    cfg_path = os.path.join(project_root, 'config', 'config.yaml')
+    if os.path.exists(cfg_path):
+        return {'ok': True, 'created': False}
+
+    # Try Streamlit secrets first (works on Streamlit Cloud)
+    noaa_token = None
+    eia_key = None
+    try:
+        # st.secrets may contain keys NOAA_TOKEN / EIA_API_KEY or nested dicts
+        noaa_token = st.secrets.get("NOAA_TOKEN") or (st.secrets.get("noaa") or {}).get("token")
+        eia_key = st.secrets.get("EIA_API_KEY") or (st.secrets.get("eia") or {}).get("api_key")
+    except Exception:
+        noaa_token = None
+        eia_key = None
+
+    # Fallback to environment variables
+    if not noaa_token:
+        noaa_token = os.getenv("NOAA_TOKEN")
+    if not eia_key:
+        eia_key = os.getenv("EIA_API_KEY")
+
+    # Load example config as base if available
+    example_path = os.path.join(project_root, 'config', 'config.example.yaml')
+    base_cfg = {}
+    if os.path.exists(example_path):
+        try:
+            with open(example_path, 'r') as f:
+                base_cfg = yaml.safe_load(f) or {}
+        except Exception:
+            base_cfg = {}
+
+    # If we have no example and no secrets, cannot generate config
+    if not base_cfg and not (noaa_token or eia_key):
+        return {'ok': False, 'reason': 'no-example-no-secrets'}
+
+    # Ensure structure
+    base_cfg.setdefault('noaa', {})
+    base_cfg.setdefault('eia', {})
+    base_cfg.setdefault('paths', {'raw_data': 'data/raw/', 'processed_data': 'data/processed/', 'log_file': 'logs/pipeline.log'})
+    base_cfg.setdefault('cities', base_cfg.get('cities', []))
+    # Inject tokens if available
+    if noaa_token:
+        base_cfg['noaa']['token'] = noaa_token
+    base_cfg['noaa'].setdefault('base_url', 'https://www.ncdc.noaa.gov/cdo-web/api/v2/data')
+    if eia_key:
+        base_cfg['eia']['api_key'] = eia_key
+    base_cfg['eia'].setdefault('base_url', 'https://api.eia.gov/v2/electricity/rto/region-data/data/')
+
+    # Ensure config dir exists
+    os.makedirs(os.path.join(project_root, 'config'), exist_ok=True)
+    try:
+        with open(cfg_path, 'w') as f:
+            yaml.safe_dump(base_cfg, f, sort_keys=False)
+        return {'ok': True, 'created': True}
+    except Exception as e:
+        return {'ok': False, 'reason': f'write-failed: {e}'}
+
+
 # --- Pipeline runner helpers (works locally & on Streamlit Cloud) ---
 def run_pipeline(mode='realtime', timeout_seconds=600):
     """
     Run main.py with the given mode using same Python executable.
+    Ensures config exists on Cloud by creating it from secrets if needed.
     Returns dict with keys: ran (bool), stdout, stderr, reason.
     """
+    # Ensure config file exists or can be generated from secrets
+    cfg_check = ensure_config_from_secrets()
+    if not cfg_check.get('ok'):
+        return {
+            'ran': False,
+            'reason': 'missing_config',
+            'detail': f"Could not find or create config/config.yaml: {cfg_check.get('reason')}. "
+                      "Set Streamlit secrets NOAA_TOKEN / EIA_API_KEY or provide config.example.yaml in the repo."
+        }
+
     main_py = os.path.join(project_root, 'main.py')
     if not os.path.exists(main_py):
         return {'ran': False, 'reason': f"main.py not found at {main_py}"}
