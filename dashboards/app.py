@@ -13,13 +13,14 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# --- Ensure single project_root & sys.path setup (move this near the top, before any helper that uses project_root) ---
+# --- Ensure project_root & sys.path are defined once (move here if needed) ---
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 src_path = os.path.join(project_root, 'src')
 for _p in (project_root, src_path):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+# --- ensure_config_from_secrets (single robust definition) ---
 # --- Single robust helper to create config/config.yaml from Streamlit secrets or env ---
 def ensure_config_from_secrets():
     """
@@ -141,7 +142,7 @@ def ensure_config_from_secrets():
     except Exception as e:
         return {'ok': False, 'reason': f'write-failed: {e}'}
 
-# Remove later duplicate project_root/sys.path block if present.
+# --- Remove any later duplicate project_root/sys.path block ---
 # (If you find another block that sets project_root and inserts into sys.path, delete it.)
 
 # --- Try to import analysis/data helpers from src, provide safe fallbacks if missing ---
@@ -784,6 +785,7 @@ else:
 
 # --- Visualization 2: Time Series Analysis ---
 st.header("Time Series Analysis")
+
 col1, col2 = st.columns([3, 1])
 with col1:
     col1.markdown("<div style='color:#000000;font-weight:600;margin-bottom:6px'>Select a City for Time Series View</div>", unsafe_allow_html=True)
@@ -803,13 +805,14 @@ with col2:
         label_visibility="collapsed",
     )
 
-# prepare timeseries df (explicit copy to avoid SettingWithCopyWarning)
+# Prepare timeseries dataframe (explicit copy to avoid SettingWithCopyWarning)
 if selected_ts_city == "All Cities":
     ts_df = filtered_df.groupby('date').agg({'temp_avg_f': 'mean', 'energy_demand_gwh': 'sum'}).reset_index()
 else:
     ts_df = filtered_df[filtered_df['city'] == selected_ts_city].copy()
 
 if not ts_df.empty:
+    # Default plotting columns
     y_temp, y_energy = 'temp_avg_f', 'energy_demand_gwh'
     title_prefix = ""
     yaxis_temp_title, yaxis_energy_title = "Avg Temperature (°F)", "Energy Consumption (GWh)"
@@ -818,7 +821,7 @@ if not ts_df.empty:
         ts_df['temp_avg_f_diff'] = ts_df['temp_avg_f'].diff()
         ts_df['energy_demand_gwh_diff'] = ts_df['energy_demand_gwh'].diff()
         ts_df = ts_df.dropna().reset_index(drop=True)
-        # FIX: properly terminated string, use correct diff column name
+        # FIXED: properly terminated string and correct column name
         y_temp, y_energy = 'temp_avg_f_diff', 'energy_demand_gwh_diff'
         title_prefix = "Daily Change in "
         yaxis_temp_title, yaxis_energy_title = "Daily Temperature Change (°F)", "Daily Energy Change (GWh)"
@@ -827,7 +830,12 @@ if not ts_df.empty:
                            subplot_titles=(f"{title_prefix}Temperature in {selected_ts_city}", f"{title_prefix}Energy in {selected_ts_city}"))
     fig_ts.add_trace(go.Scatter(x=ts_df['date'], y=ts_df[y_temp], name=yaxis_temp_title, line=dict(color='blue')), row=1, col=1)
     fig_ts.add_trace(go.Scatter(x=ts_df['date'], y=ts_df[y_energy], name=yaxis_energy_title, line=dict(color='orange')), row=2, col=1)
-    fig_ts.update_layout(title_text=f"{title_prefix}Temperature vs. Energy Consumption in {selected_ts_city}", height=600)
+
+    fig_ts.update_layout(
+        title_text=f"{title_prefix}Temperature vs. Energy Consumption in {selected_ts_city}",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        height=600,
+    )
     fig_ts.update_yaxes(title_text=yaxis_temp_title, row=1, col=1)
     fig_ts.update_yaxes(title_text=yaxis_energy_title, row=2, col=1)
 
