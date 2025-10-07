@@ -13,6 +13,83 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+# --- Ensure config helper is available early (moved here so it's defined before first use) ---
+def ensure_config_from_secrets():
+    """
+    Ensure config/config.yaml exists. Try these sources in order:
+      1) st.secrets: supports keys NOAA_TOKEN, EIA_API_KEY, or nested 'noaa'/'eia' dicts, or a full 'config' dict.
+      2) Environment vars NOAA_TOKEN, EIA_API_KEY.
+      3) config/config.example.yaml as a base (preserves cities).
+      4) If nothing else, return failure so the UI can instruct the deployer.
+    Returns: {'ok': True, 'created': bool} or {'ok': False, 'reason': '...'}.
+    """
+    cfg_path = os.path.join(project_root, 'config', 'config.yaml')
+    # If already present locally (dev) keep it
+    if os.path.exists(cfg_path):
+        return {'ok': True, 'created': False}
+
+    # Try to extract secrets/config from st.secrets (works on Streamlit Cloud)
+    noaa_token = None
+    eia_key = None
+    full_cfg = None
+    try:
+        # st.secrets might contain a nested config dict (recommended), or individual keys
+        if isinstance(st.secrets, dict):
+            full_cfg = st.secrets.get('config') or None
+            noaa_token = st.secrets.get('NOAA_TOKEN') or (st.secrets.get('noaa') or {}).get('token')
+            eia_key = st.secrets.get('EIA_API_KEY') or (st.secrets.get('eia') or {}).get('api_key')
+    except Exception:
+        full_cfg = None
+
+    # Fallback to environment variables
+    if not noaa_token:
+        noaa_token = os.getenv('NOAA_TOKEN')
+    if not eia_key:
+        eia_key = os.getenv('EIA_API_KEY')
+
+    # Base config: prefer full config from secrets, then example file
+    base_cfg = {}
+    if full_cfg:
+        base_cfg = full_cfg.copy()
+    else:
+        example_path = os.path.join(project_root, 'config', 'config.example.yaml')
+        if os.path.exists(example_path):
+            try:
+                with open(example_path, 'r') as f:
+                    base_cfg = yaml.safe_load(f) or {}
+            except Exception:
+                base_cfg = {}
+        else:
+            base_cfg = {}
+
+    # Ensure minimal structure
+    base_cfg.setdefault('noaa', {})
+    base_cfg.setdefault('eia', {})
+    base_cfg.setdefault('paths', {'raw_data': 'data/raw/', 'processed_data': 'data/processed/', 'log_file': 'logs/pipeline.log'})
+    base_cfg.setdefault('cities', base_cfg.get('cities', []))
+
+    # Inject tokens if present
+    if noaa_token:
+        base_cfg['noaa']['token'] = noaa_token
+    base_cfg['noaa'].setdefault('base_url', 'https://www.ncdc.noaa.gov/cdo-web/api/v2/data')
+    if eia_key:
+        base_cfg['eia']['api_key'] = eia_key
+    base_cfg['eia'].setdefault('base_url', 'https://api.eia.gov/v2/electricity/rto/region-data/data/')
+
+    # If we have neither cities nor secrets, fail with instruction
+    if not base_cfg.get('cities') and not (noaa_token or eia_key):
+        return {'ok': False, 'reason': 'no-example-no-secrets',
+                'detail': 'Provide config.example.yaml in the repo or set Streamlit secrets NOAA_TOKEN/EIA_API_KEY.'}
+
+    # Write config file for subprocess/main.py to consume
+    try:
+        os.makedirs(os.path.join(project_root, 'config'), exist_ok=True)
+        with open(cfg_path, 'w') as f:
+            yaml.safe_dump(base_cfg, f, sort_keys=False)
+        return {'ok': True, 'created': True}
+    except Exception as e:
+        return {'ok': False, 'reason': f'write-failed: {e}'}
+
 # Add project root and src folder to sys.path so "import src.*" works reliably
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 src_path = os.path.join(project_root, 'src')
