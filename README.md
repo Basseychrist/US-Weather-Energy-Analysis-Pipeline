@@ -315,11 +315,32 @@ Notes
 - Keep the placeholder config/config.example.yaml in the repo so collaborators know required structure.
 - If your app reads config/config.yaml currently, update the code to prefer st.secrets/os.getenv as shown above so deployed app uses Cloud secrets.
 
-## Streamlit Cloud: required Secrets (exact names)
+## Deploy to Streamlit Cloud — exact steps
 
-Add these entries in the Streamlit app UI → Manage app → Settings → Secrets / Environment variables.
+1. In Streamlit Cloud (share.streamlit.io) open your app → Manage app → Settings → Secrets / Environment variables and add these keys (exact names):
 
 - NOAA_TOKEN = <your_noaa_token>
 - EIA_API_KEY = <your_eia_api_key>
-- AUTO_RUN_HISTORICAL = true # optional
+- AUTO_RUN_HISTORICAL = true # optional; "true"/"1"/"yes" enable auto historical run
 
+Optional: provide a full config YAML/JSON under the key `config` (advanced). Example JSON value you can paste into the "config" secret:
+{
+"noaa": { "token": "Apeu...","base_url":"https://www.ncdc.noaa.gov/cdo-web/api/v2/data" },
+"eia": { "api_key":"0w49...","base_url":"https://api.eia.gov/v2/electricity/rto/region-data/data/" },
+"paths": { "raw_data":"data/raw/","processed_data":"data/processed/","log_file":"logs/pipeline.log" },
+"cities": [ /* city objects as in config.example.yaml */ ],
+"data_quality": { "temp_outlier_fahrenheit": { "max": 130, "min": -50 } }
+}
+
+2. Ensure the repo contains config/config.example.yaml (committed) and .gitignore lists config/config.yaml (so secrets are not pushed).
+
+3. On your local machine, stop tracking any existing config/config.yaml (run once):
+
+```bash
+git rm --cached config/config.yaml
+git add .gitignore config/config.example.yaml
+git commit -m "Stop tracking local config; add example config"
+git push origin main
+```
+
+4. Redeploy or trigger a new deploy on Streamlit Cloud. The app will run ensure_config_from_secrets() at

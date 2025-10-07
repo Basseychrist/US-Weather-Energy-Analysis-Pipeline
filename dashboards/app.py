@@ -23,42 +23,109 @@ for _p in (project_root, src_path):
 # --- Ensure config helper is available (now after project_root) ---
 def ensure_config_from_secrets():
     """
-    Ensure config/config.yaml exists. Try these sources in order:
-      1) st.secrets: supports keys NOAA_TOKEN, EIA_API_KEY, or nested 'noaa'/'eia' dicts, or a full 'config' dict.
-      2) Environment vars NOAA_TOKEN, EIA_API_KEY.
-      3) config/config.example.yaml as a base (preserves cities).
-      4) If nothing else, return failure so the UI can instruct the deployer.
-    Returns: {'ok': True, 'created': bool} or {'ok': False, 'reason': '...'}.
+    Robustly create config/config.yaml from Streamlit secrets or env vars.
+    Accepts:
+      - exact secrets NOAA_TOKEN, EIA_API_KEY, AUTO_RUN_HISTORICAL
+      - a 'config' secret containing JSON/YAML
+      - any secret whose value is a JSON/YAML blob (will be parsed)
+      - tolerates quoted strings and mixed key casing
+    Returns dict: {'ok': True, 'created': bool} or {'ok': False, 'reason': '...'}.
     """
+    import json
+
     cfg_path = os.path.join(project_root, 'config', 'config.yaml')
-    # If already present locally (dev) keep it
     if os.path.exists(cfg_path):
         return {'ok': True, 'created': False}
 
-    # Try to extract secrets/config from st.secrets (works on Streamlit Cloud)
+    # Helper to strip accidental surrounding quotes
+    def _strip_quotes(v):
+        if not isinstance(v, str):
+            return v
+        s = v.strip()
+        if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):
+            return s[1:-1].strip()
+        return s
+
+    # Collect secrets (case-insensitive keys)
+    secrets_map = {}
+    try:
+        # st.secrets is mapping-like; build a dict with original values
+        for k in list(getattr(st, "secrets", {}) or {}):
+            try:
+                secrets_map[str(k)] = st.secrets[k]
+            except Exception:
+                # fallback attempt
+                secrets_map[str(k)] = (st.secrets.get(k) if hasattr(st.secrets, "get") else None)
+    except Exception:
+        secrets_map = {}
+
+    # Normalize to lowercase keys for easy lookup
+    lower = {k.lower(): v for k, v in secrets_map.items()}
+
+    # If user pasted a JSON/YAML blob into any secret, detect and parse it as full config
+    base_cfg = {}
+    parsed_from_blob = False
+    # prefer 'config' key (case-insensitive)
+    cfg_blob = lower.get('config')
+    if cfg_blob:
+        cfg_blob = _strip_quotes(cfg_blob)
+        try:
+            # try JSON first
+            base_cfg = json.loads(cfg_blob) if isinstance(cfg_blob, str) and cfg_blob.strip().startswith('{') else yaml.safe_load(cfg_blob)
+            if not isinstance(base_cfg, dict):
+                base_cfg = {}
+            else:
+                parsed_from_blob = True
+        except Exception:
+            base_cfg = {}
+    if not parsed_from_blob:
+        # look for any secret value that looks like a blob
+        for v in lower.values():
+            if isinstance(v, str) and v.strip().startswith('{'):
+                try:
+                    parsed = json.loads(_strip_quotes(v))
+                    if isinstance(parsed, dict):
+                        base_cfg = parsed
+                        parsed_from_blob = True
+                        break
+                except Exception:
+                    try:
+                        parsed = yaml.safe_load(_strip_quotes(v))
+                        if isinstance(parsed, dict):
+                            base_cfg = parsed
+                            parsed_from_blob = True
+                            break
+                    except Exception:
+                        pass
+
+    # Extract tokens from secrets (case-insensitive), or from nested dicts in base_cfg
     noaa_token = None
     eia_key = None
-    full_cfg = None
-    try:
-        # st.secrets might contain a nested config dict (recommended), or individual keys
-        if isinstance(st.secrets, dict):
-            full_cfg = st.secrets.get('config') or None
-            noaa_token = st.secrets.get('NOAA_TOKEN') or (st.secrets.get('noaa') or {}).get('token')
-            eia_key = st.secrets.get('EIA_API_KEY') or (st.secrets.get('eia') or {}).get('api_key')
-    except Exception:
-        full_cfg = None
+    # plain secrets
+    if 'noaa_token' in lower:
+        noaa_token = _strip_quotes(lower['noaa_token'])
+    if 'eia_api_key' in lower:
+        eia_key = _strip_quotes(lower['eia_api_key'])
+    # also accept NOAA / EIA nested dicts in secrets or parsed config
+    if not noaa_token and isinstance(lower.get('noaa'), dict):
+        noaa_token = lower.get('noaa', {}).get('token')
+    if not eia_key and isinstance(lower.get('eia'), dict):
+        eia_key = lower.get('eia', {}).get('api_key')
 
-    # Fallback to environment variables
+    # fallback to environment variables
     if not noaa_token:
-        noaa_token = os.getenv('NOAA_TOKEN')
+        noaa_token = os.getenv('NOAA_TOKEN') or os.getenv('noaa_token')
     if not eia_key:
-        eia_key = os.getenv('EIA_API_KEY')
+        eia_key = os.getenv('EIA_API_KEY') or os.getenv('eia_api_key')
 
-    # Base config: prefer full config from secrets, then example file
-    base_cfg = {}
-    if full_cfg:
-        base_cfg = full_cfg.copy()
-    else:
+    # If parsed base_cfg already contains tokens, use them
+    if isinstance(base_cfg.get('noaa'), dict) and not noaa_token:
+        noaa_token = base_cfg['noaa'].get('token') or base_cfg['noaa'].get('api_key')
+    if isinstance(base_cfg.get('eia'), dict) and not eia_key:
+        eia_key = base_cfg['eia'].get('api_key')
+
+    # If we didn't parse a full config, try to load example file as base
+    if not base_cfg:
         example_path = os.path.join(project_root, 'config', 'config.example.yaml')
         if os.path.exists(example_path):
             try:
@@ -69,13 +136,12 @@ def ensure_config_from_secrets():
         else:
             base_cfg = {}
 
-    # Ensure minimal structure
+    # Ensure minimal structure and inject tokens
     base_cfg.setdefault('noaa', {})
     base_cfg.setdefault('eia', {})
     base_cfg.setdefault('paths', {'raw_data': 'data/raw/', 'processed_data': 'data/processed/', 'log_file': 'logs/pipeline.log'})
     base_cfg.setdefault('cities', base_cfg.get('cities', []))
 
-    # Inject tokens if present
     if noaa_token:
         base_cfg['noaa']['token'] = noaa_token
     base_cfg['noaa'].setdefault('base_url', 'https://www.ncdc.noaa.gov/cdo-web/api/v2/data')
@@ -83,12 +149,12 @@ def ensure_config_from_secrets():
         base_cfg['eia']['api_key'] = eia_key
     base_cfg['eia'].setdefault('base_url', 'https://api.eia.gov/v2/electricity/rto/region-data/data/')
 
-    # If we have neither cities nor secrets, fail with instruction
+    # If still no tokens and no cities, fail with instruction
     if not base_cfg.get('cities') and not (noaa_token or eia_key):
         return {'ok': False, 'reason': 'no-example-no-secrets',
-                'detail': 'Provide config.example.yaml in the repo or set Streamlit secrets NOAA_TOKEN/EIA_API_KEY.'}
+                'detail': 'Provide config.example.yaml in the repo or set Streamlit secrets NOAA_TOKEN/EIA_API_KEY (use exact key names).'}
 
-    # Write config file for subprocess/main.py to consume
+    # Write config.yaml for main.py/subprocess to consume
     try:
         os.makedirs(os.path.join(project_root, 'config'), exist_ok=True)
         with open(cfg_path, 'w') as f:
