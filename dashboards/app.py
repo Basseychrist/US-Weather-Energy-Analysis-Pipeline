@@ -13,18 +13,24 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# Add import for debug_helper
+# Add import for debug_helper and date_fix
 try:
     from dashboards.debug_helper import diagnose_pipeline_issue, generate_sample_data
+    from dashboards.date_fix import check_system_date, patch_and_run_fixed_pipeline
 except ImportError:
     try:
         from debug_helper import diagnose_pipeline_issue, generate_sample_data
+        from date_fix import check_system_date, patch_and_run_fixed_pipeline
     except ImportError:
         # Define minimal stubs if debug_helper can't be imported
         def diagnose_pipeline_issue(*args, **kwargs):
             return {"suggestions": ["Debug helper not available"], "directories": {}, "files": {}, "environment": {}}
         def generate_sample_data(*args, **kwargs):
             return {"created": False, "reason": "Debug helper not available"}
+        def check_system_date(*args, **kwargs):
+            return {"likely_incorrect": False}
+        def patch_and_run_fixed_pipeline(*args, **kwargs):
+            return {"ran": False, "reason": "Date fix helper not available"}
 
 # --- Ensure project_root & sys.path are defined once (move here if needed) ---
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -465,6 +471,26 @@ if df is None:
         else:
             st.info("No pipeline entrypoint (main.py) found to auto-generate data. Run pipeline locally: python main.py realtime")
         
+        # Check system date - if incorrect, show a warning
+        date_info = check_system_date()
+        if date_info.get("likely_incorrect"):
+            st.warning(
+                f"⚠️ **Your system date appears to be set to year {date_info['system_year']}!** "
+                f"This is likely causing NOAA API errors because it's trying to fetch future data. "
+                f"The current year should be 2023."
+            )
+            
+            # Offer a fix button
+            if st.button("🛠️ Run Pipeline with Date Fix"):
+                with st.spinner("Running pipeline with automatic date correction..."):
+                    fix_result = patch_and_run_fixed_pipeline(mode='realtime', project_root=project_root)
+                
+                if fix_result.get("ran"):
+                    st.success("✅ Pipeline completed successfully with date fix! Refresh the page to view data.")
+                    st.session_state['_pipeline_last_run'] = time.time()
+                else:
+                    st.error(f"Pipeline failed even with date fix: {fix_result.get('reason')}")
+        
         # Add an expander with detailed diagnostics
         with st.expander("🔍 Show Diagnostics & Troubleshooting", expanded=False):
             st.markdown("### Pipeline Diagnostics")
@@ -521,19 +547,21 @@ if df is None:
                         st.text("Standard error (sample):")
                         st.code(run_info["stderr_sample"])
             
-            # Add an option to generate sample data
-            st.subheader("Generate Demo Data")
-            st.markdown("""
-                You can generate sample data to preview the dashboard functionality.
-                Note: This is synthetic data for demo purposes only and does not use your actual API keys or pipeline.
-            """)
-            if st.button("Generate Sample Data for Demo"):
-                with st.spinner("Generating sample data..."):
-                    sample_result = generate_sample_data(project_root)
-                if sample_result.get("created"):
-                    st.success(f"Sample data generated ({sample_result.get('rows', 0)} rows). Refresh the page to view the dashboard.")
-                else:
-                    st.error(f"Failed to generate sample data: {sample_result.get('reason', 'unknown error')}")
+            # If we detected future date issues, add a specific section
+            if diag_results.get("environment", {}).get("future_date_request"):
+                st.subheader("⚠️ Future Date Issue Detected")
+                st.markdown("""
+                    ### System Date Problem
+                    
+                    Your system appears to be using year 2025, which is causing the pipeline to request future data from NOAA's API.
+                    NOAA only has historical data, not future data.
+                    
+                    **Options to fix this:**
+                    
+                    1. **Temporary fix:** Use the "Run Pipeline with Date Fix" button above
+                    2. **Permanent fix:** Correct your system date/time settings
+                    3. **Code fix:** Modify main.py to use a hardcoded current date instead of system time
+                """)
         
         # Stop app execution unless using sample data
         sample_csv = os.path.join(project_root, 'data', 'processed', 'weather_energy_data.csv')
