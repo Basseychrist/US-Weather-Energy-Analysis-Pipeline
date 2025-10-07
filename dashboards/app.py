@@ -95,50 +95,64 @@ except Exception as e:
 
 def ensure_config_from_secrets():
     """
-    If config/config.yaml is missing, attempt to create it from Streamlit secrets or env vars.
-    Returns {'ok': True} on success, or {'ok': False, 'reason': '...'} on failure.
+    Ensure config/config.yaml exists. Try these sources in order:
+      1) st.secrets: supports keys NOAA_TOKEN, EIA_API_KEY, or nested 'noaa'/'eia' dicts, or a full 'config' dict.
+      2) Environment vars NOAA_TOKEN, EIA_API_KEY.
+      3) config/config.example.yaml as a base (preserves cities).
+      4) If nothing else, create a minimal config (empty cities) so main.py sees a file and fails with clearer message.
+    Returns: {'ok': True, 'created': bool} or {'ok': False, 'reason': '...'}.
     """
     cfg_path = os.path.join(project_root, 'config', 'config.yaml')
     if os.path.exists(cfg_path):
         return {'ok': True, 'created': False}
 
-    # Try Streamlit secrets first (works on Streamlit Cloud)
+    # Try to extract secrets/config from st.secrets (works on Streamlit Cloud)
     noaa_token = None
     eia_key = None
+    full_cfg = None
     try:
-        # st.secrets may contain keys NOAA_TOKEN / EIA_API_KEY or nested dicts
-        noaa_token = st.secrets.get("NOAA_TOKEN") or (st.secrets.get("noaa") or {}).get("token")
-        eia_key = st.secrets.get("EIA_API_KEY") or (st.secrets.get("eia") or {}).get("api_key")
+        # st.secrets might contain a nested config dict (recommended), or individual keys
+        if isinstance(st.secrets, dict):
+            # full config provided under "config"
+            full_cfg = st.secrets.get('config') or None
+            # common flat keys
+            noaa_token = st.secrets.get('NOAA_TOKEN') or st.secrets.get('noaa', {}).get('token') if st.secrets else None
+            eia_key = st.secrets.get('EIA_API_KEY') or st.secrets.get('eia', {}).get('api_key') if st.secrets else None
+        else:
+            # safe attempt
+            full_cfg = None
     except Exception:
-        noaa_token = None
-        eia_key = None
+        full_cfg = None
 
     # Fallback to environment variables
     if not noaa_token:
-        noaa_token = os.getenv("NOAA_TOKEN")
+        noaa_token = os.getenv('NOAA_TOKEN')
     if not eia_key:
-        eia_key = os.getenv("EIA_API_KEY")
+        eia_key = os.getenv('EIA_API_KEY')
 
-    # Load example config as base if available
-    example_path = os.path.join(project_root, 'config', 'config.example.yaml')
+    # If a full config dict was provided via st.secrets, write it directly
     base_cfg = {}
-    if os.path.exists(example_path):
-        try:
-            with open(example_path, 'r') as f:
-                base_cfg = yaml.safe_load(f) or {}
-        except Exception:
+    if full_cfg:
+        base_cfg = full_cfg.copy()
+    else:
+        # Try example file as base (preserve cities)
+        example_path = os.path.join(project_root, 'config', 'config.example.yaml')
+        if os.path.exists(example_path):
+            try:
+                with open(example_path, 'r') as f:
+                    base_cfg = yaml.safe_load(f) or {}
+            except Exception:
+                base_cfg = {}
+        else:
             base_cfg = {}
 
-    # If we have no example and no secrets, cannot generate config
-    if not base_cfg and not (noaa_token or eia_key):
-        return {'ok': False, 'reason': 'no-example-no-secrets'}
-
-    # Ensure structure
+    # Ensure the minimal structure exists
     base_cfg.setdefault('noaa', {})
     base_cfg.setdefault('eia', {})
     base_cfg.setdefault('paths', {'raw_data': 'data/raw/', 'processed_data': 'data/processed/', 'log_file': 'logs/pipeline.log'})
     base_cfg.setdefault('cities', base_cfg.get('cities', []))
-    # Inject tokens if available
+
+    # Inject tokens when available
     if noaa_token:
         base_cfg['noaa']['token'] = noaa_token
     base_cfg['noaa'].setdefault('base_url', 'https://www.ncdc.noaa.gov/cdo-web/api/v2/data')
@@ -146,9 +160,14 @@ def ensure_config_from_secrets():
         base_cfg['eia']['api_key'] = eia_key
     base_cfg['eia'].setdefault('base_url', 'https://api.eia.gov/v2/electricity/rto/region-data/data/')
 
-    # Ensure config dir exists
-    os.makedirs(os.path.join(project_root, 'config'), exist_ok=True)
+    # If we still have no tokens and no cities, return a descriptive failure so UI can instruct the user
+    if not base_cfg.get('cities') and not (noaa_token or eia_key):
+        return {'ok': False, 'reason': 'no-example-no-secrets',
+                'detail': 'Provide config.example.yaml in the repo or set Streamlit secrets NOAA_TOKEN/EIA_API_KEY.'}
+
+    # Write the config file
     try:
+        os.makedirs(os.path.join(project_root, 'config'), exist_ok=True)
         with open(cfg_path, 'w') as f:
             yaml.safe_dump(base_cfg, f, sort_keys=False)
         return {'ok': True, 'created': True}
