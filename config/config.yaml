@@ -1,8 +1,10 @@
+# IMPORTANT: This file should contain your local secrets and should NOT be committed.
+# Replace the placeholders below with your real keys locally and keep this file out of Git.
 noaa:
-  token: "ApeuJLGlcWpIbXLYSDLOBnHGgEyECMTV"
+  token: "<YOUR_NOAA_TOKEN_HERE>"
   base_url: "https://www.ncdc.noaa.gov/cdo-web/api/v2/data"
 eia:
-  api_key: "0w49jQ68YHO8K6DQxMevcpZozgg4utnJoJhvJVvn"
+  api_key: "<YOUR_EIA_API_KEY_HERE>"
   base_url: "https://api.eia.gov/v2/electricity/rto/region-data/data/"
 
 paths:
@@ -46,5 +48,3 @@ data_quality:
   temp_outlier_fahrenheit:
     max: 130
     min: -50
-
-
