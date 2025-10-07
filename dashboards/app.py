@@ -431,17 +431,59 @@ if df is None:
     if df is None:
         st.error("Processed data not available. The app attempted to generate it but failed.")
         if regen_result:
-            # Show detailed pipeline output for debugging
             st.error(f"Pipeline attempt failed: {regen_msg}")
-            with st.expander("Pipeline run output (stdout / stderr / config helper)"):
+            # Show detailed output and detect common failure modes
+            with st.expander("Pipeline run output (stdout / stderr / config helper)", expanded=True):
                 st.write("Reason:", regen_result.get('reason'))
                 st.write("Detail:", regen_result.get('detail'))
-                if regen_result.get('stdout'):
+                stdout_txt = regen_result.get('stdout') or ""
+                stderr_txt = regen_result.get('stderr') or ""
+                if stdout_txt:
                     st.subheader("STDOUT")
-                    st.code(regen_result.get('stdout')[:10000])
-                if regen_result.get('stderr'):
+                    st.code(stdout_txt[:10000])
+                if stderr_txt:
                     st.subheader("STDERR")
-                    st.code(regen_result.get('stderr')[:10000])
+                    st.code(stderr_txt[:10000])
+
+                # Detect "no weather data" specific case and provide remediation
+                if "No weather data fetched" in stdout_txt or "No weather data fetched" in stderr_txt:
+                    st.warning("The pipeline ran but fetched no weather data.")
+                    st.markdown(
+                        """
+                        Possible causes and next steps:
+                        - Missing/invalid NOAA API token (check Streamlit Secrets / config/config.yaml).  
+                        - No data available for the requested date (try a historical reprocess).  
+                        - API rate limits or temporary service outage — retry after a few minutes.
+                        """
+                    )
+                    # Provide a single-button convenience to run a full historical reprocess
+                    if st.button("Run full historical load now (may take long)", key="hist_from_error_v1"):
+                        with st.spinner("Running historical pipeline (this can take a while)..."):
+                            try:
+                                hist_res = run_pipeline(mode='historical', timeout_seconds=3600)
+                            except Exception as e:
+                                hist_res = {'ran': False, 'reason': 'exception', 'detail': str(e)}
+                            st.session_state['_pipeline_last_result'] = hist_res
+                            # Show result inline
+                            if hist_res.get('ran'):
+                                st.success("Historical run completed. Attempting to load processed data.")
+                                st.session_state['_pipeline_last_run'] = time.time()
+                                # try immediate reload of cached data
+                                df, city_df, config = load_data(st.session_state['_pipeline_last_run'])
+                                if df is not None:
+                                    st.experimental_rerun()
+                                else:
+                                    st.error("Historical run finished but processed CSV still not available.")
+                            else:
+                                st.error(f"Historical run failed: {hist_res.get('reason') or hist_res.get('detail')}")
+                                if hist_res.get('stdout'):
+                                    st.subheader("Historical STDOUT")
+                                    st.code(hist_res.get('stdout')[:10000])
+                                if hist_res.get('stderr'):
+                                    st.subheader("Historical STDERR")
+                                    st.code(hist_res.get('stderr')[:10000])
+                else:
+                    st.info("If you suspect missing API keys, add NOAA_TOKEN and EIA_API_KEY to Streamlit Secrets or provide config/config.example.yaml in the repo.")
         else:
             st.info("No pipeline entrypoint (main.py) found to auto-generate data. Run pipeline locally: python main.py realtime")
         st.stop()
@@ -838,49 +880,7 @@ if not ts_df.empty:
         ts_df['energy_demand_gwh_diff'] = ts_df['energy_demand_gwh'].diff()
         ts_df.dropna(inplace=True)
         
-        y_temp, y_energy = 'temp_avg_f_diff', 'energy_demand_gwh_diff'
-        title_prefix = "Daily Change in "
-        yaxis_temp_title, yaxis_energy_title = "Daily Temperature Change (°F)", "Daily Energy Change (GWh)"
-
-if not ts_df.empty:
-    fig_ts = make_subplots(specs=[[{"secondary_y": True}]])
-    
-    # Add Temperature Line
-    fig_ts.add_trace(
-        go.Scatter(x=ts_df['date'], y=ts_df[y_temp], name=yaxis_temp_title, line=dict(color='orange')),
-        secondary_y=False,
-    )
-    
-    # Add Energy Consumption Line
-    fig_ts.add_trace(
-        go.Scatter(x=ts_df['date'], y=ts_df[y_energy], name=yaxis_energy_title, line=dict(color='blue', dash='dot')),
-        secondary_y=True,
-    )
-
-    # --- Robust Weekend Highlighting ---
-    # Find all Saturdays in the dataframe's date range
-    saturdays = ts_df[ts_df['date'].dt.dayofweek == 5]
-    for sat in saturdays['date']:
-        # For each Saturday, add a shaded rectangle covering the next 48 hours
-        fig_ts.add_vrect(
-            x0=sat, 
-            x1=sat + pd.Timedelta(days=2),
-            fillcolor="rgba(200, 200, 200, 0.2)", 
-            line_width=0, 
-            layer="below"
-        )
-    
-    fig_ts.update_layout(
-        title_text=f"{title_prefix}Temperature vs. Energy Consumption in {selected_ts_city}",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
-    fig_ts.update_yaxes(title_text=yaxis_temp_title, secondary_y=False)
-    fig_ts.update_yaxes(title_text=yaxis_energy_title, secondary_y=True)
-    
-    st.plotly_chart(fig_ts, use_container_width=True)
-else:
-    st.warning("No time series data to display for the selected filters.")
-
+        y_temp, y_energy = 'temp_avg_f_diff', '
 
 # --- Visualization 3: Correlation Analysis ---
 st.header("Correlation Analysis")
