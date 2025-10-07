@@ -1,3 +1,5 @@
+# IMPORTANT: This file should contain your local secrets and should NOT be committed.
+# Replace the placeholders below with your real keys locally and keep this file out of Git.
 noaa:
   token: "<YOUR_NOAA_TOKEN_HERE>"
   base_url: "https://www.ncdc.noaa.gov/cdo-web/api/v2/data"
