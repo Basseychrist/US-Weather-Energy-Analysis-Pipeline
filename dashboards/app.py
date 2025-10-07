@@ -818,10 +818,11 @@ if not ts_df.empty:
     yaxis_temp_title, yaxis_energy_title = "Avg Temperature (°F)", "Energy Consumption (GWh)"
 
     if make_stationary:
-        ts_df['temp_avg_f_diff'] = ts_df['temp_avg_f'].diff()
-        ts_df['energy_demand_gwh_diff'] = ts_df['energy_demand_gwh'].diff()
+        # Use .loc[] to avoid SettingWithCopyWarning
+        ts_df.loc[:, 'temp_avg_f_diff'] = ts_df['temp_avg_f'].diff()
+        ts_df.loc[:, 'energy_demand_gwh_diff'] = ts_df['energy_demand_gwh'].diff()
         ts_df = ts_df.dropna().reset_index(drop=True)
-        # FIXED: properly terminated string and correct column name
+        # This is already properly terminated in your current code
         y_temp, y_energy = 'temp_avg_f_diff', 'energy_demand_gwh_diff'
         title_prefix = "Daily Change in "
         yaxis_temp_title, yaxis_energy_title = "Daily Temperature Change (°F)", "Daily Energy Change (GWh)"
