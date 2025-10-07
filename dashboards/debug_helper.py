@@ -102,6 +102,25 @@ def diagnose_pipeline_issue(project_root=None):
             # Look for common API errors
             if "400 Client Error" in output_combined:
                 results["suggestions"].append("NOAA API returned 400 Client Error - check date ranges and parameters")
+                
+                # Check for future date requests (a very common issue)
+                import re
+                date_matches = re.findall(r'(\d{4}-\d{2}-\d{2})', output_combined)
+                if date_matches:
+                    try:
+                        today = datetime.now().date()
+                        for date_str in date_matches:
+                            date_parts = [int(p) for p in date_str.split('-')]
+                            if len(date_parts) == 3:
+                                request_date = datetime(date_parts[0], date_parts[1], date_parts[2]).date()
+                                if request_date > today:
+                                    results["environment"]["future_date_request"] = True
+                                    results["suggestions"].append(
+                                        f"Attempting to fetch data for future date {date_str} - NOAA has no data from the future!"
+                                    )
+                    except Exception:
+                        pass
+                
                 if "www.ncdc.noaa.gov" in output_combined:
                     results["environment"]["noaa_api_error"] = True
                     results["suggestions"].append("NOAA API request failed - validate your token and request parameters")
@@ -188,12 +207,22 @@ def diagnose_pipeline_issue(project_root=None):
     else:
         results["solutions"] = []
         
-        # NOAA 400 error solutions
-        if any("NOAA API" in s and "400" in s for s in results["suggestions"]):
+        # Future date detection and solution
+        if results["environment"].get("future_date_request"):
             results["solutions"].append(
-                "For NOAA API 400 errors: "
-                "1. Check date ranges (should be within available data window) "
-                "2. Verify station IDs exist "
+                "🔍 ISSUE DETECTED: Attempting to fetch data from the future! \n"
+                "SOLUTION: \n"
+                "1. Check your system date/time - make sure it's set correctly \n"
+                "2. Modify the pipeline to only request historical data (up to yesterday) \n"
+                "3. If testing/developing, use the sample data generator instead of live API calls"
+            )
+        
+        # NOAA 400 error solutions
+        elif any("NOAA API" in s and "400" in s for s in results["suggestions"]):
+            results["solutions"].append(
+                "For NOAA API 400 errors: \n"
+                "1. Check date ranges (should be within available data window, not in future) \n"
+                "2. Verify station IDs exist \n"
                 "3. Ensure datasetid and datatypeid parameters are valid"
             )
         
