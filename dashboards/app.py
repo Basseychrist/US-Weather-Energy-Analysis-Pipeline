@@ -93,105 +93,12 @@ except Exception as e:
         report['days_since_latest_data'] = (pd.Timestamp.now() - latest_date).days if pd.notnull(latest_date) else 'N/A'
         return report
 
-def ensure_config_from_secrets():
-    """
-    Ensure config/config.yaml exists. Try these sources in order:
-      1) st.secrets: supports keys NOAA_TOKEN, EIA_API_KEY, or nested 'noaa'/'eia' dicts, or a full 'config' dict.
-      2) Environment vars NOAA_TOKEN, EIA_API_KEY.
-      3) config/config.example.yaml as a base (preserves cities).
-      4) If nothing else, create a minimal config (empty cities) so main.py sees a file and fails with clearer message.
-    Returns: {'ok': True, 'created': bool} or {'ok': False, 'reason': '...'}.
-    """
-    cfg_path = os.path.join(project_root, 'config', 'config.yaml')
-    if os.path.exists(cfg_path):
-        return {'ok': True, 'created': False}
-
-    # Try to extract secrets/config from st.secrets (works on Streamlit Cloud)
-    noaa_token = None
-    eia_key = None
-    full_cfg = None
-    try:
-        # st.secrets might contain a nested config dict (recommended), or individual keys
-        if isinstance(st.secrets, dict):
-            # full config provided under "config"
-            full_cfg = st.secrets.get('config') or None
-            # common flat keys
-            noaa_token = st.secrets.get('NOAA_TOKEN') or st.secrets.get('noaa', {}).get('token') if st.secrets else None
-            eia_key = st.secrets.get('EIA_API_KEY') or st.secrets.get('eia', {}).get('api_key') if st.secrets else None
-        else:
-            # safe attempt
-            full_cfg = None
-    except Exception:
-        full_cfg = None
-
-    # Fallback to environment variables
-    if not noaa_token:
-        noaa_token = os.getenv('NOAA_TOKEN')
-    if not eia_key:
-        eia_key = os.getenv('EIA_API_KEY')
-
-    # If a full config dict was provided via st.secrets, write it directly
-    base_cfg = {}
-    if full_cfg:
-        base_cfg = full_cfg.copy()
-    else:
-        # Try example file as base (preserve cities)
-        example_path = os.path.join(project_root, 'config', 'config.example.yaml')
-        if os.path.exists(example_path):
-            try:
-                with open(example_path, 'r') as f:
-                    base_cfg = yaml.safe_load(f) or {}
-            except Exception:
-                base_cfg = {}
-        else:
-            base_cfg = {}
-
-    # Ensure the minimal structure exists
-    base_cfg.setdefault('noaa', {})
-    base_cfg.setdefault('eia', {})
-    base_cfg.setdefault('paths', {'raw_data': 'data/raw/', 'processed_data': 'data/processed/', 'log_file': 'logs/pipeline.log'})
-    base_cfg.setdefault('cities', base_cfg.get('cities', []))
-
-    # Inject tokens when available
-    if noaa_token:
-        base_cfg['noaa']['token'] = noaa_token
-    base_cfg['noaa'].setdefault('base_url', 'https://www.ncdc.noaa.gov/cdo-web/api/v2/data')
-    if eia_key:
-        base_cfg['eia']['api_key'] = eia_key
-    base_cfg['eia'].setdefault('base_url', 'https://api.eia.gov/v2/electricity/rto/region-data/data/')
-
-    # If we still have no tokens and no cities, return a descriptive failure so UI can instruct the user
-    if not base_cfg.get('cities') and not (noaa_token or eia_key):
-        return {'ok': False, 'reason': 'no-example-no-secrets',
-                'detail': 'Provide config.example.yaml in the repo or set Streamlit secrets NOAA_TOKEN/EIA_API_KEY.'}
-
-    # Write the config file
-    try:
-        os.makedirs(os.path.join(project_root, 'config'), exist_ok=True)
-        with open(cfg_path, 'w') as f:
-            yaml.safe_dump(base_cfg, f, sort_keys=False)
-        return {'ok': True, 'created': True}
-    except Exception as e:
-        return {'ok': False, 'reason': f'write-failed: {e}'}
-
-
 # --- Pipeline runner helpers (works locally & on Streamlit Cloud) ---
 def run_pipeline(mode='realtime', timeout_seconds=600):
     """
     Run main.py with the given mode using same Python executable.
-    Ensures config exists on Cloud by creating it from secrets if needed.
     Returns dict with keys: ran (bool), stdout, stderr, reason.
     """
-    # Ensure config file exists or can be generated from secrets
-    cfg_check = ensure_config_from_secrets()
-    if not cfg_check.get('ok'):
-        return {
-            'ran': False,
-            'reason': 'missing_config',
-            'detail': f"Could not find or create config/config.yaml: {cfg_check.get('reason')}. "
-                      "Set Streamlit secrets NOAA_TOKEN / EIA_API_KEY or provide config.example.yaml in the repo."
-        }
-
     main_py = os.path.join(project_root, 'main.py')
     if not os.path.exists(main_py):
         return {'ran': False, 'reason': f"main.py not found at {main_py}"}
@@ -278,6 +185,18 @@ def load_data(reload_token=None):
 
     return df, city_df, config
 
+# --- Ensure config exists on Cloud (create from st.secrets/env if needed) BEFORE loading data ---
+cfg_check = ensure_config_from_secrets()
+if not cfg_check.get('ok'):
+    # Inform the deployer about required Streamlit Secrets / example config
+    st.sidebar.warning(
+        "config/config.yaml not found and no Streamlit secrets detected. "
+        "Add NOAA_TOKEN and EIA_API_KEY in Streamlit app Secrets or add config/config.example.yaml to the repo."
+    )
+else:
+    if cfg_check.get('created'):
+        st.sidebar.info("config/config.yaml was created from Streamlit Secrets/environment variables.")
+
 # --- Sidebar controls for auto-run and manual run (unique keys) ---
 st.sidebar.header("Pipeline / Data Refresh")
 st.sidebar.write("Auto-run will attempt to fetch & process latest data if missing or stale.")
@@ -308,48 +227,30 @@ run_historical = st.sidebar.button("Run historical load (full)", key="run_histor
 if manual_run:
     with st.spinner("Running pipeline (realtime)..."):
         res = run_pipeline_if_needed(force=True) if 'run_pipeline_if_needed' in globals() else run_pipeline(mode='realtime')
-    st.session_state['_pipeline_last_result'] = res
     if res.get('ran'):
         st.sidebar.success("Realtime pipeline completed and data refreshed.")
         st.session_state['_pipeline_last_run'] = time.time()
     else:
         st.sidebar.error(f"Realtime pipeline failed: {res.get('reason') or res.get('stderr') or res.get('detail')}")
-        # Show detailed output in an expander for debugging
-        with st.sidebar.expander("Realtime run details (stdout / stderr)"):
-            st.write("Reason:", res.get('reason'))
-            st.write("Detail:", res.get('detail'))
-            if res.get('stdout'):
-                st.subheader("STDOUT")
-                st.code(res.get('stdout')[:10000])
-            if res.get('stderr'):
-                st.subheader("STDERR")
-                st.code(res.get('stderr')[:10000])
 
-# Handle historical full load (may be long-running)
+# Manual historical run handling (existing)
 if run_historical:
     st.sidebar.warning("Historical load can be long-running. Keep this session open until it finishes.")
     with st.spinner("Running full historical pipeline (this may take a while)..."):
+        # Prefer helper; fallback to run_pipeline
         try:
             res = run_pipeline_if_needed(force=True, mode='historical')
         except TypeError:
             res = run_pipeline(mode='historical', timeout_seconds=3600)
         except NameError:
             res = run_pipeline(mode='historical', timeout_seconds=3600)
-    st.session_state['_pipeline_last_result'] = res
     if res.get('ran'):
         st.sidebar.success("Historical pipeline completed. Processed CSV updated.")
         st.session_state['_pipeline_last_run'] = time.time()
     else:
         st.sidebar.error(f"Historical pipeline failed: {res.get('reason') or res.get('stderr') or res.get('detail')}")
-        with st.sidebar.expander("Historical run details (stdout / stderr)"):
-            st.write("Reason:", res.get('reason'))
-            st.write("Detail:", res.get('detail'))
-            if res.get('stdout'):
-                st.subheader("STDOUT")
-                st.code(res.get('stdout')[:10000])
-            if res.get('stderr'):
-                st.subheader("STDERR")
-                st.code(res.get('stderr')[:10000])
+        if res.get('stderr'):
+            st.sidebar.text(res.get('stderr')[:200])
 
 # NEW: Auto-run historical on startup if enabled (run once per session)
 if auto_run_historical and not st.session_state.get('_auto_hist_checked'):
@@ -360,13 +261,12 @@ if auto_run_historical and not st.session_state.get('_auto_hist_checked'):
     )
     with st.spinner("Auto-running full historical pipeline (this may take a while)..."):
         try:
-            auto_res = run_pipeline_if_needed(force=True, mode='historical')
+            res = run_pipeline_if_needed(force=True, mode='historical')
         except TypeError:
-            auto_res = run_pipeline(mode='historical', timeout_seconds=3600)
+            res = run_pipeline(mode='historical', timeout_seconds=3600)
         except NameError:
-            auto_res = run_pipeline(mode='historical', timeout_seconds=3600)
-    st.session_state['_pipeline_last_result'] = auto_res
-    if auto_res.get('ran'):
+            res = run_pipeline(mode='historical', timeout_seconds=3600)
+    if res.get('ran'):
         st.markdown(
             "<div style='background:#e6f7ea;color:#000000;padding:8px;border-radius:6px;font-weight:600;'>"
             "Auto historical run completed. Processed CSV updated."
@@ -375,35 +275,7 @@ if auto_run_historical and not st.session_state.get('_auto_hist_checked'):
         )
         st.session_state['_pipeline_last_run'] = time.time()
     else:
-        # Show actionable error and details
-        st.error(f"Auto historical run failed: {auto_res.get('reason') or auto_res.get('detail')}")
-        with st.expander("Auto-run details (stdout / stderr / config helper)"):
-            st.write("Reason:", auto_res.get('reason'))
-            st.write("Detail:", auto_res.get('detail'))
-            if auto_res.get('stdout'):
-                st.subheader("STDOUT")
-                st.code(auto_res.get('stdout')[:10000])
-            if auto_res.get('stderr'):
-                st.subheader("STDERR")
-                st.code(auto_res.get('stderr')[:10000])
-
-# --- Sidebar: show last pipeline run details if present ---
-if st.session_state.get('_pipeline_last_result'):
-    last = st.session_state['_pipeline_last_result']
-    with st.sidebar.expander("Last pipeline run output (click to expand)", expanded=False):
-        st.write("Status:", "ran" if last.get('ran') else "failed")
-        if last.get('reason'):
-            st.write("Reason:", last.get('reason'))
-        if last.get('returncode') is not None:
-            st.write("Return code:", last.get('returncode'))
-        if last.get('stdout'):
-            st.subheader("STDOUT")
-            st.code(last.get('stdout')[:5000])
-        if last.get('stderr'):
-            st.subheader("STDERR")
-            st.code(last.get('stderr')[:5000])
-        if last.get('detail'):
-            st.write("Detail:", last.get('detail'))
+        st.error(f"Auto historical run failed: {res.get('reason') or res.get('stderr') or res.get('detail')}")
 
 # --- Cached data loading and pipeline triggering (existing logic) ---
 # --- Attempt to load data, if load_data returns None then try one regen run and retry load ---
@@ -418,7 +290,6 @@ if df is None:
     if os.path.exists(main_py):
         with st.spinner("Processed data missing or invalid: running pipeline to generate it..."):
             regen_result = run_pipeline(mode='realtime')
-        st.session_state['_pipeline_last_result'] = regen_result
         if regen_result.get('ran'):
             st.success("Pipeline finished; attempting to load processed data.")
             st.session_state['_pipeline_last_run'] = time.time()
@@ -432,58 +303,6 @@ if df is None:
         st.error("Processed data not available. The app attempted to generate it but failed.")
         if regen_result:
             st.error(f"Pipeline attempt failed: {regen_msg}")
-            # Show detailed output and detect common failure modes
-            with st.expander("Pipeline run output (stdout / stderr / config helper)", expanded=True):
-                st.write("Reason:", regen_result.get('reason'))
-                st.write("Detail:", regen_result.get('detail'))
-                stdout_txt = regen_result.get('stdout') or ""
-                stderr_txt = regen_result.get('stderr') or ""
-                if stdout_txt:
-                    st.subheader("STDOUT")
-                    st.code(stdout_txt[:10000])
-                if stderr_txt:
-                    st.subheader("STDERR")
-                    st.code(stderr_txt[:10000])
-
-                # Detect "no weather data" specific case and provide remediation
-                if "No weather data fetched" in stdout_txt or "No weather data fetched" in stderr_txt:
-                    st.warning("The pipeline ran but fetched no weather data.")
-                    st.markdown(
-                        """
-                        Possible causes and next steps:
-                        - Missing/invalid NOAA API token (check Streamlit Secrets / config/config.yaml).  
-                        - No data available for the requested date (try a historical reprocess).  
-                        - API rate limits or temporary service outage — retry after a few minutes.
-                        """
-                    )
-                    # Provide a single-button convenience to run a full historical reprocess
-                    if st.button("Run full historical load now (may take long)", key="hist_from_error_v1"):
-                        with st.spinner("Running historical pipeline (this can take a while)..."):
-                            try:
-                                hist_res = run_pipeline(mode='historical', timeout_seconds=3600)
-                            except Exception as e:
-                                hist_res = {'ran': False, 'reason': 'exception', 'detail': str(e)}
-                            st.session_state['_pipeline_last_result'] = hist_res
-                            # Show result inline
-                            if hist_res.get('ran'):
-                                st.success("Historical run completed. Attempting to load processed data.")
-                                st.session_state['_pipeline_last_run'] = time.time()
-                                # try immediate reload of cached data
-                                df, city_df, config = load_data(st.session_state['_pipeline_last_run'])
-                                if df is not None:
-                                    st.experimental_rerun()
-                                else:
-                                    st.error("Historical run finished but processed CSV still not available.")
-                            else:
-                                st.error(f"Historical run failed: {hist_res.get('reason') or hist_res.get('detail')}")
-                                if hist_res.get('stdout'):
-                                    st.subheader("Historical STDOUT")
-                                    st.code(hist_res.get('stdout')[:10000])
-                                if hist_res.get('stderr'):
-                                    st.subheader("Historical STDERR")
-                                    st.code(hist_res.get('stderr')[:10000])
-                else:
-                    st.info("If you suspect missing API keys, add NOAA_TOKEN and EIA_API_KEY to Streamlit Secrets or provide config/config.example.yaml in the repo.")
         else:
             st.info("No pipeline entrypoint (main.py) found to auto-generate data. Run pipeline locally: python main.py realtime")
         st.stop()
@@ -868,8 +687,7 @@ if selected_ts_city == "All Cities":
         'energy_demand_gwh': 'sum'
     }).reset_index()
 else:
-    # Make an explicit copy to avoid SettingWithCopyWarning when we add diff columns
-    ts_df = filtered_df[filtered_df['city'] == selected_ts_city].copy()
+    ts_df = filtered_df[filtered_df['city'] == selected_ts_city]
     
 if not ts_df.empty:
     y_temp, y_energy = 'temp_avg_f', 'energy_demand_gwh'
@@ -885,60 +703,45 @@ if not ts_df.empty:
         title_prefix = "Daily Change in "
         yaxis_temp_title, yaxis_energy_title = "Daily Temperature Change (°F)", "Daily Energy Change (GWh)"
 
-    # --- Main time series chart: Temperature and Energy Usage over Time ---
-    fig_ts = make_subplots(
-        rows=2, cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.1,
-        subplot_titles=(f"{title_prefix}Temperature and Energy Usage in {selected_ts_city}", ""),
+if not ts_df.empty:
+    fig_ts = make_subplots(specs=[[{"secondary_y": True}]])
+    
+    # Add Temperature Line
+    fig_ts.add_trace(
+        go.Scatter(x=ts_df['date'], y=ts_df[y_temp], name=yaxis_temp_title, line=dict(color='orange')),
+        secondary_y=False,
+    )
+    
+    # Add Energy Consumption Line
+    fig_ts.add_trace(
+        go.Scatter(x=ts_df['date'], y=ts_df[y_energy], name=yaxis_energy_title, line=dict(color='blue', dash='dot')),
+        secondary_y=True,
     )
 
-    # Add traces
-    fig_ts.add_trace(
-        go.Scatter(x=ts_df['date'], y=ts_df[y_temp],
-                   mode='lines+markers', name='Avg Temperature (°F)',
-                   line=dict(color='blue', width=2)),
-        row=1, col=1
-    )
-    fig_ts.add_trace(
-        go.Scatter(x=ts_df['date'], y=ts_df[y_energy],
-                   mode='lines+markers', name='Energy Consumption (GWh)',
-                   line=dict(color='orange', width=2)),
-        row=2, col=1
-    )
-
-    # --- Update layout for the time series chart ---
+    # --- Robust Weekend Highlighting ---
+    # Find all Saturdays in the dataframe's date range
+    saturdays = ts_df[ts_df['date'].dt.dayofweek == 5]
+    for sat in saturdays['date']:
+        # For each Saturday, add a shaded rectangle covering the next 48 hours
+        fig_ts.add_vrect(
+            x0=sat, 
+            x1=sat + pd.Timedelta(days=2),
+            fillcolor="rgba(200, 200, 200, 0.2)", 
+            line_width=0, 
+            layer="below"
+        )
+    
     fig_ts.update_layout(
-        title_text=f"{title_prefix}Temperature and Energy Usage in {selected_ts_city}",
-        title_font=dict(size=16, color='black'),
-        xaxis_title="Date",
-        yaxis_title=yaxis_temp_title,
-        yaxis2_title=yaxis_energy_title,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=40, r=40, t=40, b=40),
-        height=600,  # Increased height for better readability
+        title_text=f"{title_prefix}Temperature vs. Energy Consumption in {selected_ts_city}",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
-
-    # --- Add annotations for latest data point ---
-    latest_date = ts_df['date'].max()
-    latest_temp = ts_df.loc[ts_df['date'] == latest_date, y_temp].values[0]
-    latest_energy = ts_df.loc[ts_df['date'] == latest_date, y_energy].values[0]
-    fig_ts.add_annotation(
-        x=latest_date, y=latest_temp,
-        text=f"Latest Temp: {latest_temp:.1f}°F",
-        showarrow=True, arrowhead=2, ax=0, ay=-40,
-        font=dict(size=12, color='blue')
-    )
-    fig_ts.add_annotation(
-        x=latest_date, y=latest_energy,
-        text=f"Latest Energy: {latest_energy:,.0f} GWh",
-        showarrow=True, arrowhead=2, ax=0, ay=-40,
-        font=dict(size=12, color='orange')
-    )
-
+    fig_ts.update_yaxes(title_text=yaxis_temp_title, secondary_y=False)
+    fig_ts.update_yaxes(title_text=yaxis_energy_title, secondary_y=True)
+    
     st.plotly_chart(fig_ts, use_container_width=True)
 else:
-    st.warning(f"No time series data available for {selected_ts_city} in the selected date range.")
+    st.warning("No time series data to display for the selected filters.")
+
 
 # --- Visualization 3: Correlation Analysis ---
 st.header("Correlation Analysis")

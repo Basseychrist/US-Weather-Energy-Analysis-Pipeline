@@ -314,3 +314,12 @@ Notes
 - Use st.secrets on Streamlit Cloud; it is secure and automatically injected into the runtime.
 - Keep the placeholder config/config.example.yaml in the repo so collaborators know required structure.
 - If your app reads config/config.yaml currently, update the code to prefer st.secrets/os.getenv as shown above so deployed app uses Cloud secrets.
+
+## Streamlit Cloud: required Secrets (exact names)
+
+Add these entries in the Streamlit app UI → Manage app → Settings → Secrets / Environment variables.
+
+- NOAA_TOKEN = <your_noaa_token>
+- EIA_API_KEY = <your_eia_api_key>
+- AUTO_RUN_HISTORICAL = true # optional
+
