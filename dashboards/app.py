@@ -13,24 +13,31 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# Add import for debug_helper and date_fix
+# Add import for debug_helper and date_fix - with robust error handling
 try:
     from dashboards.debug_helper import diagnose_pipeline_issue, generate_sample_data
-    from dashboards.date_fix import check_system_date, patch_and_run_fixed_pipeline
 except ImportError:
     try:
         from debug_helper import diagnose_pipeline_issue, generate_sample_data
-        from date_fix import check_system_date, patch_and_run_fixed_pipeline
     except ImportError:
         # Define minimal stubs if debug_helper can't be imported
         def diagnose_pipeline_issue(*args, **kwargs):
             return {"suggestions": ["Debug helper not available"], "directories": {}, "files": {}, "environment": {}}
         def generate_sample_data(*args, **kwargs):
             return {"created": False, "reason": "Debug helper not available"}
+
+# Separately try importing date_fix to isolate potential errors
+try:
+    from dashboards.date_fix import check_system_date, patch_and_run_fixed_pipeline
+except ImportError:
+    try:
+        from date_fix import check_system_date, patch_and_run_fixed_pipeline
+    except ImportError:
+        # Define minimal stubs if date_fix can't be imported
         def check_system_date(*args, **kwargs):
-            return {"likely_incorrect": False}
+            return {"likely_incorrect": False, "system_year": 2023, "system_date": "2023-01-01"}
         def patch_and_run_fixed_pipeline(*args, **kwargs):
-            return {"ran": False, "reason": "Date fix helper not available"}
+            return {"ran": False, "reason": "Date fix module not available"}
 
 # --- Ensure project_root & sys.path are defined once (move here if needed) ---
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -1107,6 +1114,13 @@ if force_run:
 with st.spinner("Checking processed data and running pipeline if needed..."):
     auto_result = run_pipeline_if_needed(max_age_hours=24)
     if auto_result.get('ran'):
+        st.info("Pipeline run completed to refresh processed data.")
+    elif auto_result.get('ran') is False and auto_result.get('reason') == 'up-to-date':
+        # nothing to do
+        pass
+    else:
+        # show a non-blocking warning so user knows why auto-run did not complete
+        st.warning(f"Pipeline auto-run skipped or failed: {auto_result.get('reason') or auto_result.get('stderr') or auto_result.get('detail')}")
         st.info("Pipeline run completed to refresh processed data.")
     elif auto_result.get('ran') is False and auto_result.get('reason') == 'up-to-date':
         # nothing to do

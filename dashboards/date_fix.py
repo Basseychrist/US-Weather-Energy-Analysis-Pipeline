@@ -3,7 +3,6 @@ import sys
 import re
 import datetime
 import subprocess
-import tempfile
 import shutil
 
 def check_system_date():
@@ -83,7 +82,8 @@ def fix_main_for_date_issues(project_root=None):
                 content = f.read()
             
             # Add a date offset function at the top of the file
-            header_fix = """
+            # Fixed: Using raw string to avoid issues with escape sequences
+            header_fix = r'''
 # --- BEGIN DATE FIX (automatically added) ---
 # This fixes issues with incorrect system date (year 2025) by forcing the date to be in 2023
 import datetime as _datetime_original
@@ -93,14 +93,14 @@ _original_datetime_now = _datetime_original.datetime.now
 _original_date_today = _datetime_original.date.today
 
 def _fixed_datetime_now():
-    """Return datetime.now() but with the year adjusted to 2023 if currently 2025"""
+    # Return datetime.now() but with the year adjusted to 2023 if currently 2025
     now = _original_datetime_now()
     if now.year == 2025:
         return now.replace(year=2023)
     return now
 
 def _fixed_date_today():
-    """Return date.today() but with the year adjusted to 2023 if currently 2025"""
+    # Return date.today() but with the year adjusted to 2023 if currently 2025
     today = _original_date_today()
     if today.year == 2025:
         return today.replace(year=2023)
@@ -111,7 +111,7 @@ _datetime_original.datetime.now = _fixed_datetime_now
 _datetime_original.date.today = _fixed_date_today
 # --- END DATE FIX ---
 
-"""
+'''
             # Add the fix code at the top, after any module docstrings but before actual code
             first_import = content.find('import')
             if first_import >= 0:
@@ -215,4 +215,5 @@ if __name__ == "__main__":
             else:
                 print(f"\n❌ Pipeline failed even with date fix: {result.get('reason', 'unknown error')}")
     else:
+        print("✅ System date appears to be set correctly.")
         print("✅ System date appears to be set correctly.")
