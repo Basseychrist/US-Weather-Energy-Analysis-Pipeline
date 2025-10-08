@@ -1113,17 +1113,17 @@ if force_run:
 # On app start attempt automatic refresh if file missing or stale (max_age_hours=24)
 with st.spinner("Checking processed data and running pipeline if needed..."):
     auto_result = run_pipeline_if_needed(max_age_hours=24)
+    # Check auto-run results
     if auto_result.get('ran'):
         st.info("Pipeline run completed to refresh processed data.")
-    elif auto_result.get('ran') is False and auto_result.get('reason') == 'up-to-date':
+    # Separate if statement rather than elif to avoid syntax issues
+    if auto_result.get('ran') is False and auto_result.get('reason') == 'up-to-date':
         # nothing to do
         pass
-    else:
+    # Separate if statement for other cases
+    if auto_result.get('ran') is False and auto_result.get('reason') != 'up-to-date':
         # show a non-blocking warning so user knows why auto-run did not complete
         st.warning(f"Pipeline auto-run skipped or failed: {auto_result.get('reason') or auto_result.get('stderr') or auto_result.get('detail')}")
-        st.info("Pipeline run completed to refresh processed data.")
-    elif auto_result.get('ran') is False and auto_result.get('reason') == 'up-to-date':
-        # nothing to do
         pass
     else:
         # show a non-blocking warning so user knows why auto-run did not complete
