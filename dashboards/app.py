@@ -13,163 +13,12 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# Add import for debug_helper and date_fix - with robust error handling
-try:
-    from dashboards.debug_helper import diagnose_pipeline_issue, generate_sample_data
-except ImportError:
-    try:
-        from debug_helper import diagnose_pipeline_issue, generate_sample_data
-    except ImportError:
-        # Define minimal stubs if debug_helper can't be imported
-        def diagnose_pipeline_issue(*args, **kwargs):
-            return {"suggestions": ["Debug helper not available"], "directories": {}, "files": {}, "environment": {}}
-        def generate_sample_data(*args, **kwargs):
-            return {"created": False, "reason": "Debug helper not available"}
-
-# Separately try importing date_fix to isolate potential errors
-try:
-    from dashboards.date_fix import check_system_date, patch_and_run_fixed_pipeline
-except ImportError:
-    try:
-        from date_fix import check_system_date, patch_and_run_fixed_pipeline
-    except ImportError:
-        # Define minimal stubs if date_fix can't be imported
-        def check_system_date(*args, **kwargs):
-            return {"likely_incorrect": False, "system_year": 2023, "system_date": "2023-01-01"}
-        def patch_and_run_fixed_pipeline(*args, **kwargs):
-            return {"ran": False, "reason": "Date fix module not available"}
-
-# --- Ensure project_root & sys.path are defined once (move here if needed) ---
+# Add project root and src folder to sys.path so "import src.*" works reliably
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 src_path = os.path.join(project_root, 'src')
 for _p in (project_root, src_path):
     if _p not in sys.path:
         sys.path.insert(0, _p)
-
-# --- ensure_config_from_secrets (single robust definition) ---
-# --- Single robust helper to create config/config.yaml from Streamlit secrets or env ---
-def ensure_config_from_secrets():
-    """
-    Create config/config.yaml from st.secrets (tolerant) or env vars or config.example.yaml.
-    Returns {'ok': True, 'created': bool} or {'ok': False, 'reason': '...'}.
-    """
-    import json
-    cfg_path = os.path.join(project_root, 'config', 'config.yaml')
-    if os.path.exists(cfg_path):
-        return {'ok': True, 'created': False}
-
-    def _strip_quotes(v):
-        if not isinstance(v, str):
-            return v
-        s = v.strip()
-        if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):
-            return s[1:-1].strip()
-        return s
-
-    # collect secrets case-insensitively
-    secrets_map = {}
-    try:
-        for k in list(getattr(st, "secrets", {}) or {}):
-            try:
-                secrets_map[str(k)] = st.secrets[k]
-            except Exception:
-                secrets_map[str(k)] = st.secrets.get(k) if hasattr(st.secrets, "get") else None
-    except Exception:
-        secrets_map = {}
-    lower = {k.lower(): v for k, v in secrets_map.items()}
-
-    # attempt to parse a full config blob if provided
-    base_cfg = {}
-    parsed = False
-    cfg_blob = lower.get('config')
-    if cfg_blob:
-        cfg_blob = _strip_quotes(cfg_blob)
-        try:
-            base_cfg = json.loads(cfg_blob) if isinstance(cfg_blob, str) and cfg_blob.strip().startswith('{') else yaml.safe_load(cfg_blob)
-            if isinstance(base_cfg, dict):
-                parsed = True
-        except Exception:
-            base_cfg = {}
-
-    if not parsed:
-        for v in lower.values():
-            if isinstance(v, str) and v.strip().startswith('{'):
-                try:
-                    parsed_cfg = json.loads(_strip_quotes(v))
-                    if isinstance(parsed_cfg, dict):
-                        base_cfg = parsed_cfg
-                        parsed = True
-                        break
-                except Exception:
-                    try:
-                        parsed_cfg = yaml.safe_load(_strip_quotes(v))
-                        if isinstance(parsed_cfg, dict):
-                            base_cfg = parsed_cfg
-                            parsed = True
-                            break
-                    except Exception:
-                        pass
-
-    # extract tokens (case-insensitive)
-    noaa_token = None
-    eia_key = None
-    if 'noaa_token' in lower:
-        noaa_token = _strip_quotes(lower['noaa_token'])
-    if 'eia_api_key' in lower:
-        eia_key = _strip_quotes(lower['eia_api_key'])
-    if not noaa_token and isinstance(lower.get('noaa'), dict):
-        noaa_token = lower.get('noaa', {}).get('token')
-    if not eia_key and isinstance(lower.get('eia'), dict):
-        eia_key = lower.get('eia', {}).get('api_key')
-
-    # fallback to env
-    if not noaa_token:
-        noaa_token = os.getenv('NOAA_TOKEN') or os.getenv('noaa_token')
-    if not eia_key:
-        eia_key = os.getenv('EIA_API_KEY') or os.getenv('eia_api_key')
-
-    # if parsed config has tokens use them
-    if isinstance(base_cfg.get('noaa'), dict) and not noaa_token:
-        noaa_token = base_cfg['noaa'].get('token') or base_cfg['noaa'].get('api_key')
-    if isinstance(base_cfg.get('eia'), dict) and not eia_key:
-        eia_key = base_cfg['eia'].get('api_key')
-
-    # if no full config, try example file
-    if not base_cfg:
-        example_path = os.path.join(project_root, 'config', 'config.example.yaml')
-        if os.path.exists(example_path):
-            try:
-                with open(example_path, 'r') as f:
-                    base_cfg = yaml.safe_load(f) or {}
-            except Exception:
-                base_cfg = {}
-
-    base_cfg.setdefault('noaa', {})
-    base_cfg.setdefault('eia', {})
-    base_cfg.setdefault('paths', {'raw_data': 'data/raw/', 'processed_data': 'data/processed/', 'log_file': 'logs/pipeline.log'})
-    base_cfg.setdefault('cities', base_cfg.get('cities', []))
-
-    if noaa_token:
-        base_cfg['noaa']['token'] = noaa_token
-    base_cfg['noaa'].setdefault('base_url', 'https://www.ncdc.noaa.gov/cdo-web/api/v2/data')
-    if eia_key:
-        base_cfg['eia']['api_key'] = eia_key
-    base_cfg['eia'].setdefault('base_url', 'https://api.eia.gov/v2/electricity/rto/region-data/data/')
-
-    if not base_cfg.get('cities') and not (noaa_token or eia_key):
-        return {'ok': False, 'reason': 'no-example-no-secrets',
-                'detail': 'Provide config.example.yaml or set Streamlit Secrets NOAA_TOKEN/EIA_API_KEY.'}
-
-    try:
-        os.makedirs(os.path.join(project_root, 'config'), exist_ok=True)
-        with open(cfg_path, 'w') as f:
-            yaml.safe_dump(base_cfg, f, sort_keys=False)
-        return {'ok': True, 'created': True}
-    except Exception as e:
-        return {'ok': False, 'reason': f'write-failed: {e}'}
-
-# --- Remove any later duplicate project_root/sys.path block ---
-# (If you find another block that sets project_root and inserts into sys.path, delete it.)
 
 # --- Try to import analysis/data helpers from src, provide safe fallbacks if missing ---
 try:
@@ -250,37 +99,16 @@ def run_pipeline(mode='realtime', timeout_seconds=600):
     Run main.py with the given mode using same Python executable.
     Returns dict with keys: ran (bool), stdout, stderr, reason.
     """
-    # Create required directories first to avoid permission issues
-    for path in ['data', 'data/raw', 'data/processed', 'logs']:
-        dir_path = os.path.join(project_root, *path.split('/'))
-        os.makedirs(dir_path, exist_ok=True)
-    
     main_py = os.path.join(project_root, 'main.py')
     if not os.path.exists(main_py):
         return {'ran': False, 'reason': f"main.py not found at {main_py}"}
-    
     cmd = [sys.executable, main_py, mode]
     try:
         proc = subprocess.run(cmd, cwd=project_root, capture_output=True, text=True, timeout=timeout_seconds)
         if proc.returncode == 0:
             return {'ran': True, 'stdout': proc.stdout}
         else:
-            # Enhanced error reporting
-            reason = "Unknown error"
-            if "ModuleNotFoundError" in proc.stderr:
-                reason = "Missing Python modules - check requirements"
-            elif "KeyError" in proc.stderr:
-                reason = "Configuration error - check config.yaml format"
-            elif "API" in proc.stderr and "key" in proc.stderr.lower():
-                reason = "API key error - check your API credentials"
-            
-            return {
-                'ran': False, 
-                'stderr': proc.stderr, 
-                'stdout': proc.stdout,
-                'returncode': proc.returncode,
-                'reason': reason
-            }
+            return {'ran': False, 'stderr': proc.stderr or proc.stdout, 'returncode': proc.returncode}
     except subprocess.TimeoutExpired as te:
         return {'ran': False, 'reason': 'timeout', 'detail': str(te)}
     except Exception as e:
@@ -357,39 +185,34 @@ def load_data(reload_token=None):
 
     return df, city_df, config
 
-# --- Ensure config exists on Cloud (create from st.secrets/env if needed) BEFORE loading data ---
-cfg_check = ensure_config_from_secrets()
-if not cfg_check.get('ok'):
-    # Inform the deployer about required Streamlit Secrets / example config
-    st.sidebar.warning(
-        "config/config.yaml not found and no Streamlit secrets detected. "
-        "Add NOAA_TOKEN and EIA_API_KEY in Streamlit app Secrets or add config/config.example.yaml to the repo."
-    )
-else:
-    if cfg_check.get('created'):
-        st.sidebar.info("config/config.yaml was created from Streamlit Secrets/environment variables.")
-
 # --- Sidebar controls for auto-run and manual run (unique keys) ---
 st.sidebar.header("Pipeline / Data Refresh")
 st.sidebar.write("Auto-run will attempt to fetch & process latest data if missing or stale.")
 
+# Detect if running in Streamlit Cloud/GitHub deployment
+is_cloud_deployment = os.environ.get('STREAMLIT_SHARING_MODE') or 'STREAMLIT_RUNTIME_STREAMLIT_CLOUD' in os.environ
+
 # Read environment variable to allow enabling in deployed environments (Streamlit Cloud secrets)
 raw_env = os.getenv("AUTO_RUN_HISTORICAL")
 if raw_env is None:
-    # default ON when env var not provided
-    env_auto_hist = True
+    # Enable by default on cloud, keep current behavior locally
+    env_auto_hist = True if is_cloud_deployment else True
 else:
     env_auto_hist = str(raw_env).lower() in ("1", "true", "yes")
 
 # Checkbox to auto-run realtime (existing) — keep as-is
 auto_run_enabled = st.sidebar.checkbox("Auto-run pipeline on startup (realtime)", value=True, key="auto_run_enabled_v3")
 
-# NEW: checkbox to auto-run full historical load on startup (default from env or True)
+# Checkbox for historical - automatically enable on cloud deployment
 auto_run_historical = st.sidebar.checkbox(
     "Auto-run historical on startup (full reprocess)", 
     value=env_auto_hist, 
     key="auto_run_historical_v1"
 )
+
+# Display cloud deployment notice if detected
+if is_cloud_deployment:
+    st.sidebar.info("☁️ Streamlit Cloud deployment detected - historical data will be processed automatically.")
 
 manual_run = st.sidebar.button("Run pipeline now", key="run_pipeline_manual_v3")
 # New historical button (keep for manual trigger)
@@ -424,20 +247,41 @@ if run_historical:
         if res.get('stderr'):
             st.sidebar.text(res.get('stderr')[:200])
 
-# NEW: Auto-run historical on startup if enabled (run once per session)
-if auto_run_historical and not st.session_state.get('_auto_hist_checked'):
+# Auto-run historical on startup if enabled (run once per session)
+# Higher priority in cloud environments
+priority_historical = is_cloud_deployment or auto_run_historical
+if priority_historical and not st.session_state.get('_auto_hist_checked'):
     st.session_state['_auto_hist_checked'] = True
-    st.markdown(
-        "<div style='color:#000000;font-weight:600;'>Auto-run historical is enabled — the app will run a full historical pipeline now.</div>",
-        unsafe_allow_html=True,
-    )
+    
+    # Use different messaging for cloud vs local
+    if is_cloud_deployment:
+        st.markdown(
+            "<div style='background:#e6f7ea;color:#000000;padding:8px;border-radius:6px;font-weight:600;'>"
+            "☁️ Streamlit Cloud deployment detected — automatically processing historical data..."
+            "</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            "<div style='color:#000000;font-weight:600;'>Auto-run historical is enabled — the app will run a full historical pipeline now.</div>",
+            unsafe_allow_html=True,
+        )
+    
     with st.spinner("Auto-running full historical pipeline (this may take a while)..."):
         try:
-            res = run_pipeline_if_needed(force=True, mode='historical')
+            # Force historical run when in cloud environment
+            res = run_pipeline_if_needed(force=is_cloud_deployment, mode='historical', timeout_seconds=3600)
         except TypeError:
+            # Handle potential argument differences
             res = run_pipeline(mode='historical', timeout_seconds=3600)
         except NameError:
+            # Fallback if function not available
             res = run_pipeline(mode='historical', timeout_seconds=3600)
+        except Exception as e:
+            # Catch any other unexpected errors to prevent app failure
+            st.error(f"Error running historical pipeline: {str(e)}")
+            res = {'ran': False, 'reason': str(e)}
+    
     if res.get('ran'):
         st.markdown(
             "<div style='background:#e6f7ea;color:#000000;padding:8px;border-radius:6px;font-weight:600;'>"
@@ -470,198 +314,14 @@ if df is None:
         else:
             regen_msg = regen_result.get('reason') or regen_result.get('stderr') or regen_result.get('detail') or "unknown error"
 
-    # If still no data, run diagnostics and offer to generate sample data
+    # If still no data, show actionable message and stop
     if df is None:
         st.error("Processed data not available. The app attempted to generate it but failed.")
         if regen_result:
             st.error(f"Pipeline attempt failed: {regen_msg}")
         else:
             st.info("No pipeline entrypoint (main.py) found to auto-generate data. Run pipeline locally: python main.py realtime")
-        
-        # Check system date - if incorrect, show a warning and fix option
-        date_info = check_system_date()
-        if date_info.get("likely_incorrect"):
-            st.warning(
-                f"⚠️ **Your system date appears to be set to year {date_info['system_year']}!** "
-                f"This is likely causing NOAA API errors because it's trying to fetch future data. "
-                f"The current year should be 2023."
-            )
-        
-        # Add API debugging and fixing options
-        st.subheader("🔧 API Troubleshooting Tools")
-        
-        # Create tabs for different fixes
-        fix_tab1, fix_tab2 = st.tabs(["Date Fix", "API Parameter Fix"])
-        
-        with fix_tab1:
-            st.markdown("### Date Fix")
-            st.markdown(
-                "If your system date is set to the future (e.g., year 2025), "
-                "this will patch the code to use 2023 dates instead."
-            )
-            if st.button("🛠️ Run Pipeline with Date Fix"):
-                with st.spinner("Running pipeline with automatic date correction..."):
-                    fix_result = patch_and_run_fixed_pipeline(mode='realtime', project_root=project_root)
-                
-                if fix_result.get("ran"):
-                    st.success("✅ Pipeline completed successfully with date fix! Refresh the page to view data.")
-                    st.session_state['_pipeline_last_run'] = time.time()
-                else:
-                    st.error(f"Pipeline failed even with date fix: {fix_result.get('reason')}")
-        
-        with fix_tab2:
-            st.markdown("### API Parameter Fix")
-            st.markdown(
-                "This option patches the code to use safer API parameters, "
-                "including explicit date ranges that don't rely on system time."
-            )
-            if st.button("🛠️ Run Pipeline with API Parameter Fix"):
-                with st.spinner("Running pipeline with API parameter fixes..."):
-                    # Create an API debugger instance
-                    api_debugger = ApiDebugger(project_root=project_root)
-                    api_fix_result = api_debugger.run_patched_pipeline(mode='realtime')
-                
-                if api_fix_result.get("success"):
-                    st.success("✅ Pipeline completed successfully with API parameter fixes! Refresh the page to view data.")
-                    st.session_state['_pipeline_last_run'] = time.time()
-                else:
-                    st.error(f"Pipeline failed with API parameter fix: {api_fix_result.get('error') or 'unknown error'}")
-                    if api_fix_result.get("stderr"):
-                        with st.expander("Error Details"):
-                            st.code(api_fix_result.get("stderr"))
-        
-        # Add an expander with detailed diagnostics
-        with st.expander("🔍 Show Diagnostics & Troubleshooting", expanded=True):
-            st.markdown("### Pipeline Diagnostics")
-            
-            # Run diagnostics
-            with st.spinner("Running diagnostics..."):
-                diag_results = diagnose_pipeline_issue(project_root)
-                
-                # Also run API-specific diagnostics if available
-                try:
-                    api_debugger = ApiDebugger(project_root=project_root)
-                    api_diag = api_debugger.get_diagnostics_report()
-                except Exception as e:
-                    api_diag = {"error": str(e)}
-            
-            # Display diagnostic results
-            if diag_results["suggestions"]:
-                st.subheader("Issues Found")
-                for suggestion in diag_results["suggestions"]:
-                    st.warning(suggestion)
-            
-            # Display API-specific diagnostics if available
-            if api_diag and not api_diag.get("error"):
-                st.subheader("API Diagnostics")
-                
-                st.markdown("#### System Date")
-                date_cols = st.columns(2)
-                with date_cols[0]:
-                    st.info(f"Current date: {api_diag['system_date']['date']}")
-                with date_cols[1]:
-                    st.info(f"Year: {api_diag['system_date']['year']}")
-                
-                if api_diag['system_date']['likely_incorrect']:
-                    st.warning("⚠️ System year appears to be set incorrectly (in the future)")
-                
-                # Show API token status
-                st.markdown("#### API Tokens")
-                for token_name, token_value in api_diag.get('api_tokens', {}).items():
-                    st.text(f"{token_name}: {token_value}")
-                
-                # Show future dates if any
-                future_dates = api_diag.get('log_analysis', {}).get('future_dates')
-                if future_dates:
-                    st.markdown("#### Future Dates in API Requests")
-                    for date_info in future_dates:
-                        st.warning(f"Date: {date_info['date']} ({date_info['days_in_future']} days in the future)")
-                
-                # Show recommendations
-                if api_diag.get('recommendations'):
-                    st.markdown("#### API Recommendations")
-                    for rec in api_diag['recommendations']:
-                        if rec.startswith("ISSUE:"):
-                            st.warning(rec)
-                        else:
-                            st.info(rec)
-            
-            # Show directory structure
-            st.subheader("Directory Structure")
-            dir_data = []
-            for dir_name, info in diag_results["directories"].items():
-                dir_data.append({
-                    "Directory": dir_name,
-                    "Exists": "✅" if info.get("exists") else "❌",
-                    "Path": info.get("path", "N/A")
-                })
-            st.table(dir_data)
-            
-            # Show file status
-            st.subheader("Critical Files")
-            file_data = []
-            for file_name, info in diag_results["files"].items():
-                file_data.append({
-                    "File": file_name,
-                    "Exists": "✅" if info.get("exists") else "❌",
-                    "Size": f"{info.get('size', 0):,} bytes" if info.get("exists") else "N/A"
-                })
-            st.table(file_data)
-            
-            # Show environment info
-            st.subheader("Environment")
-            for key, value in diag_results["environment"].items():
-                st.text(f"{key}: {value}")
-            
-            # Show pipeline run details if available
-            if "pipeline_run" in diag_results:
-                st.subheader("Pipeline Run Results")
-                run_info = diag_results["pipeline_run"]
-                if "error" in run_info:
-                    st.error(f"Error: {run_info['error']}")
-                else:
-                    st.text(f"Return code: {run_info.get('returncode', 'N/A')}")
-                    if run_info.get("stdout_sample"):
-                        st.text("Standard output (sample):")
-                        st.code(run_info["stdout_sample"])
-                    if run_info.get("stderr_sample"):
-                        st.text("Standard error (sample):")
-                        st.code(run_info["stderr_sample"])
-            
-            # If we detected future date issues, add a specific section
-            if diag_results.get("environment", {}).get("future_date_request"):
-                st.subheader("⚠️ Future Date Issue Detected")
-                st.markdown("""
-                    ### System Date Problem
-                    
-                    Your system appears to be using year 2025, which is causing the pipeline to request future data from NOAA's API.
-                    NOAA only has historical data, not future data.
-                    
-                    **Options to fix this:**
-                    
-                    1. **Temporary fix:** Use the "Run Pipeline with Date Fix" button above
-                    2. **Permanent fix:** Correct your system date/time settings
-                    3. **Code fix:** Modify main.py to use a hardcoded current date instead of system time
-                """)
-            
-            # Display solutions if available
-            if diag_results.get("solutions"):
-                st.subheader("Recommended Solutions")
-                for solution in diag_results["solutions"]:
-                    st.markdown(f"- {solution}")
-
-        # Stop app execution unless using sample data
-        sample_csv = os.path.join(project_root, 'data', 'processed', 'weather_energy_data.csv')
-        if not os.path.exists(sample_csv):
-            st.stop()
-        else:
-            # Try to load the sample data we just generated
-            st.info("🔄 Attempting to load sample data. If this message persists, please refresh the page.")
-            df, city_df, config = load_data(time.time())  # Force cache refresh
-            if df is None:
-                st.stop()
-            else:
-                st.success("✅ Sample data loaded successfully! Note: This is synthetic data for demonstration purposes.")
+        st.stop()
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -1016,16 +676,17 @@ else:
 
 # --- Visualization 2: Time Series Analysis ---
 st.header("Time Series Analysis")
-
+    
 col1, col2 = st.columns([3, 1])
+# Render explicit black labels above widgets so text is always visible
 with col1:
     col1.markdown("<div style='color:#000000;font-weight:600;margin-bottom:6px'>Select a City for Time Series View</div>", unsafe_allow_html=True)
     selected_ts_city = col1.selectbox(
-        "Select a City for Time Series View (hidden label)",
-        options=["All Cities"] + list(all_cities),
+        "Select a City for Time Series View (hidden label)", 
+        options=["All Cities"] + list(all_cities), 
         index=0,
         key="ts_city_select",
-        label_visibility="collapsed",
+        label_visibility="collapsed"
     )
 with col2:
     col2.markdown("<div style='color:#000000;font-weight:600;margin-bottom:6px'>Make data stationary (apply differencing)</div>", unsafe_allow_html=True)
@@ -1033,56 +694,70 @@ with col2:
         "Make data stationary (hidden label)",
         value=False,
         key="make_stationary_chk",
-        label_visibility="collapsed",
+        label_visibility="collapsed"
     )
-
-# Prepare timeseries dataframe (explicit copy to avoid SettingWithCopyWarning)
+ 
 if selected_ts_city == "All Cities":
-    ts_df = filtered_df.groupby('date').agg({'temp_avg_f': 'mean', 'energy_demand_gwh': 'sum'}).reset_index()
+    ts_df = filtered_df.groupby('date').agg({
+        'temp_avg_f': 'mean',
+        'energy_demand_gwh': 'sum'
+    }).reset_index()
 else:
-    ts_df = filtered_df[filtered_df['city'] == selected_ts_city].copy()
-
+    ts_df = filtered_df[filtered_df['city'] == selected_ts_city]
+    
 if not ts_df.empty:
-    # Default plotting columns
     y_temp, y_energy = 'temp_avg_f', 'energy_demand_gwh'
     title_prefix = ""
     yaxis_temp_title, yaxis_energy_title = "Avg Temperature (°F)", "Energy Consumption (GWh)"
 
     if make_stationary:
-        # Use .loc[] to avoid SettingWithCopyWarning
-        ts_df.loc[:, 'temp_avg_f_diff'] = ts_df['temp_avg_f'].diff()
-        ts_df.loc[:, 'energy_demand_gwh_diff'] = ts_df['energy_demand_gwh'].diff()
-        ts_df = ts_df.dropna().reset_index(drop=True)
-        # This is already properly terminated in your current code
+        ts_df['temp_avg_f_diff'] = ts_df['temp_avg_f'].diff()
+        ts_df['energy_demand_gwh_diff'] = ts_df['energy_demand_gwh'].diff()
+        ts_df.dropna(inplace=True)
+        
         y_temp, y_energy = 'temp_avg_f_diff', 'energy_demand_gwh_diff'
         title_prefix = "Daily Change in "
         yaxis_temp_title, yaxis_energy_title = "Daily Temperature Change (°F)", "Daily Energy Change (GWh)"
 
-    fig_ts = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08,
-                           subplot_titles=(f"{title_prefix}Temperature in {selected_ts_city}", f"{title_prefix}Energy in {selected_ts_city}"))
-    fig_ts.add_trace(go.Scatter(x=ts_df['date'], y=ts_df[y_temp], name=yaxis_temp_title, line=dict(color='blue')), row=1, col=1)
-    fig_ts.add_trace(go.Scatter(x=ts_df['date'], y=ts_df[y_energy], name=yaxis_energy_title, line=dict(color='orange')), row=2, col=1)
+if not ts_df.empty:
+    fig_ts = make_subplots(specs=[[{"secondary_y": True}]])
+    
+    # Add Temperature Line
+    fig_ts.add_trace(
+        go.Scatter(x=ts_df['date'], y=ts_df[y_temp], name=yaxis_temp_title, line=dict(color='orange')),
+        secondary_y=False,
+    )
+    
+    # Add Energy Consumption Line
+    fig_ts.add_trace(
+        go.Scatter(x=ts_df['date'], y=ts_df[y_energy], name=yaxis_energy_title, line=dict(color='blue', dash='dot')),
+        secondary_y=True,
+    )
 
+    # --- Robust Weekend Highlighting ---
+    # Find all Saturdays in the dataframe's date range
+    saturdays = ts_df[ts_df['date'].dt.dayofweek == 5]
+    for sat in saturdays['date']:
+        # For each Saturday, add a shaded rectangle covering the next 48 hours
+        fig_ts.add_vrect(
+            x0=sat, 
+            x1=sat + pd.Timedelta(days=2),
+            fillcolor="rgba(200, 200, 200, 0.2)", 
+            line_width=0, 
+            layer="below"
+        )
+    
     fig_ts.update_layout(
         title_text=f"{title_prefix}Temperature vs. Energy Consumption in {selected_ts_city}",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        height=600,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
-    fig_ts.update_yaxes(title_text=yaxis_temp_title, row=1, col=1)
-    fig_ts.update_yaxes(title_text=yaxis_energy_title, row=2, col=1)
-
-    try:
-        latest_date = ts_df['date'].max()
-        latest_temp = float(ts_df.loc[ts_df['date'] == latest_date, y_temp].values[0])
-        latest_energy = float(ts_df.loc[ts_df['date'] == latest_date, y_energy].values[0])
-        fig_ts.add_annotation(x=latest_date, y=latest_temp, text=f"Latest Temp: {latest_temp:.1f}°F", showarrow=True, arrowhead=2, ax=0, ay=-30, font=dict(color='blue'))
-        fig_ts.add_annotation(x=latest_date, y=latest_energy, text=f"Latest Energy: {latest_energy:,.0f} GWh", showarrow=True, arrowhead=2, ax=0, ay=-30, font=dict(color='orange'))
-    except Exception:
-        pass
-
+    fig_ts.update_yaxes(title_text=yaxis_temp_title, secondary_y=False)
+    fig_ts.update_yaxes(title_text=yaxis_energy_title, secondary_y=True)
+    
     st.plotly_chart(fig_ts, use_container_width=True)
 else:
-    st.warning(f"No time series data available for {selected_ts_city} in the selected date range.")
+    st.warning("No time series data to display for the selected filters.")
+
 
 # --- Visualization 3: Correlation Analysis ---
 st.header("Correlation Analysis")
@@ -1193,17 +868,10 @@ if force_run:
 # On app start attempt automatic refresh if file missing or stale (max_age_hours=24)
 with st.spinner("Checking processed data and running pipeline if needed..."):
     auto_result = run_pipeline_if_needed(max_age_hours=24)
-    # Check auto-run results
     if auto_result.get('ran'):
         st.info("Pipeline run completed to refresh processed data.")
-    # Separate if statement rather than elif to avoid syntax issues
-    if auto_result.get('ran') is False and auto_result.get('reason') == 'up-to-date':
+    elif auto_result.get('ran') is False and auto_result.get('reason') == 'up-to-date':
         # nothing to do
-        pass
-    # Separate if statement for other cases
-    if auto_result.get('ran') is False and auto_result.get('reason') != 'up-to-date':
-        # show a non-blocking warning so user knows why auto-run did not complete
-        st.warning(f"Pipeline auto-run skipped or failed: {auto_result.get('reason') or auto_result.get('stderr') or auto_result.get('detail')}")
         pass
     else:
         # show a non-blocking warning so user knows why auto-run did not complete

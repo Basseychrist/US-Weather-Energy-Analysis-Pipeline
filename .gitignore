@@ -1,7 +1,7 @@
 # Ignore local config file that contains API keys
-config/config.yaml
+# config/config.yaml
 
 # Ignore API keys and sensitive information
-/config/config.yaml
-/config.yaml
-config.yaml
+# /config/config.yaml
+# /config.yaml
+# config.yaml
