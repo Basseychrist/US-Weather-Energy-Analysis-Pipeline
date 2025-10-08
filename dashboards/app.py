@@ -478,7 +478,7 @@ if df is None:
         else:
             st.info("No pipeline entrypoint (main.py) found to auto-generate data. Run pipeline locally: python main.py realtime")
         
-        # Check system date - if incorrect, show a warning
+        # Check system date - if incorrect, show a warning and fix option
         date_info = check_system_date()
         if date_info.get("likely_incorrect"):
             st.warning(
@@ -486,8 +486,19 @@ if df is None:
                 f"This is likely causing NOAA API errors because it's trying to fetch future data. "
                 f"The current year should be 2023."
             )
-            
-            # Offer a fix button
+        
+        # Add API debugging and fixing options
+        st.subheader("🔧 API Troubleshooting Tools")
+        
+        # Create tabs for different fixes
+        fix_tab1, fix_tab2 = st.tabs(["Date Fix", "API Parameter Fix"])
+        
+        with fix_tab1:
+            st.markdown("### Date Fix")
+            st.markdown(
+                "If your system date is set to the future (e.g., year 2025), "
+                "this will patch the code to use 2023 dates instead."
+            )
             if st.button("🛠️ Run Pipeline with Date Fix"):
                 with st.spinner("Running pipeline with automatic date correction..."):
                     fix_result = patch_and_run_fixed_pipeline(mode='realtime', project_root=project_root)
@@ -498,19 +509,82 @@ if df is None:
                 else:
                     st.error(f"Pipeline failed even with date fix: {fix_result.get('reason')}")
         
+        with fix_tab2:
+            st.markdown("### API Parameter Fix")
+            st.markdown(
+                "This option patches the code to use safer API parameters, "
+                "including explicit date ranges that don't rely on system time."
+            )
+            if st.button("🛠️ Run Pipeline with API Parameter Fix"):
+                with st.spinner("Running pipeline with API parameter fixes..."):
+                    # Create an API debugger instance
+                    api_debugger = ApiDebugger(project_root=project_root)
+                    api_fix_result = api_debugger.run_patched_pipeline(mode='realtime')
+                
+                if api_fix_result.get("success"):
+                    st.success("✅ Pipeline completed successfully with API parameter fixes! Refresh the page to view data.")
+                    st.session_state['_pipeline_last_run'] = time.time()
+                else:
+                    st.error(f"Pipeline failed with API parameter fix: {api_fix_result.get('error') or 'unknown error'}")
+                    if api_fix_result.get("stderr"):
+                        with st.expander("Error Details"):
+                            st.code(api_fix_result.get("stderr"))
+        
         # Add an expander with detailed diagnostics
-        with st.expander("🔍 Show Diagnostics & Troubleshooting", expanded=False):
+        with st.expander("🔍 Show Diagnostics & Troubleshooting", expanded=True):
             st.markdown("### Pipeline Diagnostics")
             
             # Run diagnostics
             with st.spinner("Running diagnostics..."):
                 diag_results = diagnose_pipeline_issue(project_root)
+                
+                # Also run API-specific diagnostics if available
+                try:
+                    api_debugger = ApiDebugger(project_root=project_root)
+                    api_diag = api_debugger.get_diagnostics_report()
+                except Exception as e:
+                    api_diag = {"error": str(e)}
             
             # Display diagnostic results
             if diag_results["suggestions"]:
                 st.subheader("Issues Found")
                 for suggestion in diag_results["suggestions"]:
                     st.warning(suggestion)
+            
+            # Display API-specific diagnostics if available
+            if api_diag and not api_diag.get("error"):
+                st.subheader("API Diagnostics")
+                
+                st.markdown("#### System Date")
+                date_cols = st.columns(2)
+                with date_cols[0]:
+                    st.info(f"Current date: {api_diag['system_date']['date']}")
+                with date_cols[1]:
+                    st.info(f"Year: {api_diag['system_date']['year']}")
+                
+                if api_diag['system_date']['likely_incorrect']:
+                    st.warning("⚠️ System year appears to be set incorrectly (in the future)")
+                
+                # Show API token status
+                st.markdown("#### API Tokens")
+                for token_name, token_value in api_diag.get('api_tokens', {}).items():
+                    st.text(f"{token_name}: {token_value}")
+                
+                # Show future dates if any
+                future_dates = api_diag.get('log_analysis', {}).get('future_dates')
+                if future_dates:
+                    st.markdown("#### Future Dates in API Requests")
+                    for date_info in future_dates:
+                        st.warning(f"Date: {date_info['date']} ({date_info['days_in_future']} days in the future)")
+                
+                # Show recommendations
+                if api_diag.get('recommendations'):
+                    st.markdown("#### API Recommendations")
+                    for rec in api_diag['recommendations']:
+                        if rec.startswith("ISSUE:"):
+                            st.warning(rec)
+                        else:
+                            st.info(rec)
             
             # Show directory structure
             st.subheader("Directory Structure")
@@ -569,7 +643,13 @@ if df is None:
                     2. **Permanent fix:** Correct your system date/time settings
                     3. **Code fix:** Modify main.py to use a hardcoded current date instead of system time
                 """)
-        
+            
+            # Display solutions if available
+            if diag_results.get("solutions"):
+                st.subheader("Recommended Solutions")
+                for solution in diag_results["solutions"]:
+                    st.markdown(f"- {solution}")
+
         # Stop app execution unless using sample data
         sample_csv = os.path.join(project_root, 'data', 'processed', 'weather_energy_data.csv')
         if not os.path.exists(sample_csv):

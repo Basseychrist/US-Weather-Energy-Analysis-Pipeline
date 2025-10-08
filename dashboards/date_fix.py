@@ -82,7 +82,6 @@ def fix_main_for_date_issues(project_root=None):
                 content = f.read()
             
             # Add a date offset function at the top of the file
-            # Using single-line comments instead of triple-quoted strings
             header_fix = '''
 # --- BEGIN DATE FIX (automatically added) ---
 # This fixes issues with incorrect system date (year 2025) by forcing the date to be in 2023
@@ -215,5 +214,6 @@ if __name__ == "__main__":
             else:
                 print(f"\n❌ Pipeline failed even with date fix: {result.get('reason', 'unknown error')}")
     else:
+        print("✅ System date appears to be set correctly.")
         print("✅ System date appears to be set correctly.")
         print("✅ System date appears to be set correctly.")
